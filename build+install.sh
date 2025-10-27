@@ -7,6 +7,8 @@ JAVA_PKG="im.angry.openeuicc.bridge"
 APKTOOL_TREE="eazyeuicc"
 OUT_DIR="out"
 SRC_ROOT="src"
+ORIG_APK="eazyeuicc.apk"
+APP_JAR="deps/eazyeuicc.jar"
 BAKSMALI_JAR="tools/baksmali.jar"
 # ============================================================================
 
@@ -45,6 +47,51 @@ command -v keytool >/dev/null || { echo "ERROR: keytool not found"; exit 1; }
 [[ -d "$APKTOOL_TREE" ]] || { echo "ERROR: apktool tree missing: $APKTOOL_TREE"; exit 1; }
 [[ -d "$SRC_PKG_DIR" ]]  || { echo "ERROR: source package dir missing: $SRC_PKG_DIR"; exit 1; }
 
+# Ensure we have a complete classpath jar containing ALL dexes (kotlin, coroutines, lpac_jni, etc.)
+rebuild_cp_jar() {
+  local apk="$1"
+  local dexdir="deps/_dex"
+  local mergedir="deps/_merge"
+  rm -rf "$dexdir" "$mergedir"
+  mkdir -p "$dexdir" "$mergedir" deps
+
+  echo "[dex] extracting classes*.dex from $apk"
+  unzip -q -j "$apk" 'classes*.dex' -d "$dexdir"
+
+  local any=0
+  for d in "$dexdir"/classes*.dex; do
+    [[ -f "$d" ]] || continue
+    any=1
+    local j="${d%.dex}.jar"
+    echo "[dex2jar] $d -> $j"
+    d2j-dex2jar "$d" -o "$j" >/dev/null
+    unzip -q -o "$j" -d "$mergedir"
+  done
+  [[ $any -eq 1 ]] || { echo "ERROR: no classes*.dex found in $apk"; exit 1; }
+
+  (cd "$mergedir" && jar cf ../eazyeuicc.jar .)
+  rm -rf "$dexdir" "$mergedir"
+}
+
+# (Re)build classpath jar if missing or incomplete
+need_rebuild=0
+if [[ ! -f "$APP_JAR" ]]; then
+  need_rebuild=1
+else
+  jar tf "$APP_JAR" | grep -q '^kotlin/'                  || need_rebuild=1
+  jar tf "$APP_JAR" | grep -q '^kotlinx/coroutines/'      || need_rebuild=1
+  jar tf "$APP_JAR" | grep -q '^net/typeblog/lpac_jni/'   || need_rebuild=1
+fi
+if [[ $need_rebuild -eq 1 ]]; then
+  [[ -f "$ORIG_APK" ]] || { echo "ERROR: ORIG_APK not found: $ORIG_APK"; exit 1; }
+  rebuild_cp_jar "$ORIG_APK"
+fi
+
+# Verify again (fail fast with helpful messages)
+jar tf "$APP_JAR" | grep -q '^kotlin/'                || { echo "ERROR: Kotlin stdlib missing in $APP_JAR"; exit 1; }
+jar tf "$APP_JAR" | grep -q '^kotlinx/coroutines/'    || { echo "ERROR: kotlinx coroutines missing in $APP_JAR"; exit 1; }
+jar tf "$APP_JAR" | grep -q '^net/typeblog/lpac_jni/' || { echo "ERROR: net.typeblog.lpac_jni missing in $APP_JAR"; exit 1; }
+
 # Gather sources
 JAVA_SOURCES=()
 while IFS= read -r -d '' f; do
@@ -58,12 +105,20 @@ rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"/{classes,dex,smali}
 
 # Compile
-javac --release 23 -cp "$ANDROID_JAR" \
+CP="$ANDROID_JAR:$APP_JAR"
+javac \
+  -source 23 -target 23 \
+  -classpath "$CP" \
+  -Xlint:-options \
+  -encoding UTF-8 \
   -d "$OUT_DIR/classes" \
   "${JAVA_SOURCES[@]}"
 
+
 # DEX
-"$BT/d8" --lib "$ANDROID_JAR" \
+"$BT/d8" \
+  --lib "$ANDROID_JAR" \
+  --classpath "$APP_JAR" \
   --output "$OUT_DIR/dex" \
   $(find "$OUT_DIR/classes" -type f -name '*.class')
 

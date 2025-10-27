@@ -1,19 +1,43 @@
 package im.angry.openeuicc.bridge;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+
+import kotlin.coroutines.Continuation;
+import kotlin.coroutines.CoroutineContext;
+import kotlin.coroutines.EmptyCoroutineContext;
+import kotlin.jvm.functions.Function2;
+import kotlinx.coroutines.BuildersKt;
+import kotlinx.coroutines.CoroutineScope;
+
 import android.content.ContentProvider;
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
 
-import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.Map;
-import java.util.HashMap;
+import im.angry.openeuicc.OpenEuiccApplication;
+import im.angry.openeuicc.core.EuiccChannel;
+import im.angry.openeuicc.core.EuiccChannelManager;
+import im.angry.openeuicc.util.LPAUtilsKt;
+import im.angry.openeuicc.di.AppContainer;
+import net.typeblog.lpac_jni.LocalProfileInfo;
 
 public class LpaBridgeProvider extends ContentProvider
 {
     public static final String AUTHORITY = "lpa.bridge";
+
+    private AppContainer appContainer;
+
+    @Override
+    public boolean onCreate()
+    {
+        appContainer = ((OpenEuiccApplication)getContext().getApplicationContext()).getAppContainer();
+        return true;
+    }
 
     @Override
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder)
@@ -28,16 +52,26 @@ public class LpaBridgeProvider extends ContentProvider
         }
         else
         {
-            final Map<String, String> args = getArgsFromUri(uri);
-
-            switch (path)
+            try
             {
-                case "test":
-                    rows = handleTest(args);
-                    break;
-                default:
-                    rows = error("unknown_path");
-                    break;
+                final Map<String, String> args = getArgsFromUri(uri);
+
+                switch (path)
+                {
+                    case "ping":
+                        rows = handlePing(args);
+                        break;
+                    case "profiles":
+                        rows = handleGetProfiles(args);
+                        break;
+                    default:
+                        rows = error("unknown_path");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                rows = error(ex.getMessage());
             }
         }
 
@@ -45,9 +79,6 @@ public class LpaBridgeProvider extends ContentProvider
     }
 
     // region Mandatory Overrides
-
-    @Override
-    public boolean onCreate() { return true; }
 
     @Override
     public Uri insert(Uri uri, ContentValues values) { return null; }
@@ -65,15 +96,74 @@ public class LpaBridgeProvider extends ContentProvider
 
     // region Handlers
 
-    private MatrixCursor handleTest(Map<String, String> args)
+    private MatrixCursor handlePing(Map<String, String> args)
     {
+        return row("ping", "pong");
+    }
+
+    private MatrixCursor handleGetProfiles(Map<String, String> args) throws Exception
+    {
+        List<LocalProfileInfo> profiles = withEuiccChannel(
+            args,
+            (channel, _) -> channel.getLpa().getProfiles()
+        );
+
+        if (profiles == null || profiles.isEmpty())
+            return empty();
+
+        var rows = new MatrixCursor(new String[]
+        {
+            "iccid",
+            "state",
+            "name",
+            "nickname"
+        });
+
+        for (LocalProfileInfo profile : profiles)
+        {
+            rows.addRow(new Object[] {
+                profile.getIccid(),
+                profile.getState().toString(), // TODO: replace by LPAUtilsKt.isEnabled(profile)?
+                profile.getName(),
+                LPAUtilsKt.getDisplayName(profile)
+            });
+        }
+
+        return rows;
+    }
+
+    // endregion
+
+    // region LPA Helpers
+
+    @SuppressWarnings("unchecked")
+    private <T> T withEuiccChannel(Map<String, String> args, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
+    {
+        final String slotIdArg = "slotId";
+        final String portIdArg = "portId";
+
         var slotId = new int[1];
         var portId = new int[1];
 
-        var error = requireSlotAndPort(args, slotId, portId);
-        if (error != null) return error;
+        if (!tryGetInt(args, slotIdArg, slotId))
+            throw new Exception("missing_arg_" + slotIdArg);
 
-        return row("ok", "true");
+        if (!tryGetInt(args, portIdArg, portId))
+            throw new Exception("missing_arg_" + portIdArg);
+
+        EuiccChannelManager channelManager = appContainer.getEuiccChannelManager();
+
+        return (T)BuildersKt.runBlocking(
+            EmptyCoroutineContext.INSTANCE,
+            (scope, continuation) -> {
+                return channelManager.withEuiccChannel(
+                    slotId[0],
+                    portId[0],
+                    operation,
+                    continuation
+                );
+            }
+        );
     }
 
     // endregion
@@ -119,20 +209,6 @@ public class LpaBridgeProvider extends ContentProvider
         {
             return false;
         }
-    }
-
-    private MatrixCursor requireSlotAndPort(Map<String, String> args, int[] slotIdOut, int[] portIdOut)
-    {
-        final String slotIdArg = "slotId";
-        final String portIdArg = "portId";
-
-        if (!tryGetInt(args, slotIdArg, slotIdOut))
-            return error("missing_arg_" + slotIdArg);
-
-        if (!tryGetInt(args, portIdArg, portIdOut))
-            return error("missing_arg_" + portIdArg);
-
-        return null;
     }
 
     // endregion

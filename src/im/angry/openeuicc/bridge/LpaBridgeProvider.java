@@ -28,8 +28,6 @@ import net.typeblog.lpac_jni.LocalProfileInfo;
 
 public class LpaBridgeProvider extends ContentProvider
 {
-    public static final String AUTHORITY = "lpa.bridge";
-
     private AppContainer appContainer;
 
     @Override
@@ -215,9 +213,16 @@ public class LpaBridgeProvider extends ContentProvider
 
     // region Row Helpers
 
-    private static MatrixCursor empty()
+    private static MatrixCursor rows(String[] columns, Object... values)
     {
-        return new MatrixCursor(new String[0]);
+        var rows = new MatrixCursor(columns);
+        rows.addRow(values);
+        return rows;
+    }
+
+    private static MatrixCursor row(String key, String value)
+    {
+        return rows(new String[] { key }, value);
     }
 
     private static MatrixCursor error(String message)
@@ -225,16 +230,9 @@ public class LpaBridgeProvider extends ContentProvider
         return row("error", message);
     }
 
-    private static MatrixCursor row(String key, String value)
+    private static MatrixCursor empty()
     {
-        return row(new String[] { key }, value);
-    }
-
-    private static MatrixCursor row(String[] columns, Object... values)
-    {
-        var rows = new MatrixCursor(columns);
-        rows.addRow(values);
-        return rows;
+        return new MatrixCursor(new String[0]);
     }
 
     private static MatrixCursor projectColumns(MatrixCursor source, String[] projection)

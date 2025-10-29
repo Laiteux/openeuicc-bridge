@@ -1,5 +1,7 @@
 package im.angry.openeuicc.bridge;
 
+import java.lang.reflect.Method;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -20,9 +22,12 @@ import android.database.MatrixCursor;
 import android.net.Uri;
 
 import im.angry.openeuicc.OpenEuiccApplication;
+import im.angry.openeuicc.core.DefaultEuiccChannelManager;
 import im.angry.openeuicc.core.EuiccChannel;
 import im.angry.openeuicc.core.EuiccChannelManager;
 import im.angry.openeuicc.util.LPAUtilsKt;
+import im.angry.openeuicc.util.UiccCardInfoCompat;
+import im.angry.openeuicc.util.UiccPortInfoCompat;
 import im.angry.openeuicc.di.AppContainer;
 import net.typeblog.lpac_jni.LocalProfileInfo;
 
@@ -33,7 +38,7 @@ public class LpaBridgeProvider extends ContentProvider
     @Override
     public boolean onCreate()
     {
-        appContainer = ((OpenEuiccApplication)getContext().getApplicationContext()).getAppContainer();
+        appContainer = ((OpenEuiccApplication) getContext().getApplicationContext()).getAppContainer();
         return true;
     }
 
@@ -58,6 +63,9 @@ public class LpaBridgeProvider extends ContentProvider
                 {
                     case "ping":
                         rows = handlePing(args);
+                        break;
+                    case "cards":
+                        rows = handleGetCards(args);
                         break;
                     case "profiles":
                         rows = handleGetProfiles(args);
@@ -99,30 +107,84 @@ public class LpaBridgeProvider extends ContentProvider
         return row("ping", "pong");
     }
 
+    private MatrixCursor handleGetCards(Map<String, String> args) throws Exception
+    {
+        var euiccChannelManager = (DefaultEuiccChannelManager) appContainer.getEuiccChannelManager();
+
+        var getUiccCardsMethod = DefaultEuiccChannelManager.class.getDeclaredMethod("getUiccCards");
+        getUiccCardsMethod.setAccessible(true);
+
+        var findEuiccChannelByPortMethod = DefaultEuiccChannelManager.class.getDeclaredMethod("findEuiccChannelByPort", int.class, int.class, Continuation.class);
+        findEuiccChannelByPortMethod.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        var cards = (Collection<UiccCardInfoCompat>) getUiccCardsMethod.invoke(euiccChannelManager);
+
+        var rows = new MatrixCursor(new String[]
+        {
+            "slotId",
+            "portId"
+        });
+
+        for (UiccCardInfoCompat card : cards)
+        {
+            for (UiccPortInfoCompat port : card.getPorts())
+            {
+                int slotId = card.getPhysicalSlotIndex();
+                int portId = port.getPortIndex();
+
+                @SuppressWarnings("unchecked")
+                var euiccChannel = (EuiccChannel) BuildersKt.runBlocking
+                (
+                    EmptyCoroutineContext.INSTANCE,
+                    (_, continuation) ->
+                    {
+                        try
+                        {
+                            return findEuiccChannelByPortMethod.invoke(euiccChannelManager, slotId, portId, continuation);
+                        }
+                        catch (Exception ex)
+                        {
+                            return null;
+                        }
+                    }
+                );
+
+                if (euiccChannel != null)
+                {
+                    rows.addRow(new Object[]
+                    {
+                        slotId,
+                        portId
+                    });
+                }
+            }
+        }
+
+        return rows;
+    }
+
     private MatrixCursor handleGetProfiles(Map<String, String> args) throws Exception
     {
-        List<LocalProfileInfo> profiles = withEuiccChannel(
+        List<LocalProfileInfo> profiles = withEuiccChannel
+        (
             args,
             (channel, _) -> channel.getLpa().getProfiles()
         );
 
-        if (profiles == null || profiles.isEmpty())
-            return empty();
-
         var rows = new MatrixCursor(new String[]
         {
             "iccid",
-            "state",
-            "name",
-            "nickname"
+            "isEnabled",
+            "displayName"
         });
 
         for (LocalProfileInfo profile : profiles)
         {
-            rows.addRow(new Object[] {
+            rows.addRow(new Object[]
+            {
                 profile.getIccid(),
-                profile.getState().toString(), // TODO: replace by LPAUtilsKt.isEnabled(profile)?
-                profile.getName(),
+                LPAUtilsKt.isEnabled(profile),
                 LPAUtilsKt.getDisplayName(profile)
             });
         }
@@ -134,29 +196,29 @@ public class LpaBridgeProvider extends ContentProvider
 
     // region LPA Helpers
 
-    @SuppressWarnings("unchecked")
     private <T> T withEuiccChannel(Map<String, String> args, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
     {
-        final String slotIdArg = "slotId";
-        final String portIdArg = "portId";
-
         var slotId = new int[1];
         var portId = new int[1];
+        requireSlotAndPort(args, slotId, portId);
 
-        if (!tryGetInt(args, slotIdArg, slotId))
-            throw new Exception("missing_arg_" + slotIdArg);
+        return withEuiccChannel(slotId[0], portId[0], operation);
+    }
 
-        if (!tryGetInt(args, portIdArg, portId))
-            throw new Exception("missing_arg_" + portIdArg);
+    @SuppressWarnings("unchecked")
+    private <T> T withEuiccChannel(int slotId, int portId, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
+    {
+        var euiccChannelManager = appContainer.getEuiccChannelManager();
 
-        EuiccChannelManager channelManager = appContainer.getEuiccChannelManager();
-
-        return (T)BuildersKt.runBlocking(
+        return (T) BuildersKt.runBlocking
+        (
             EmptyCoroutineContext.INSTANCE,
-            (scope, continuation) -> {
-                return channelManager.withEuiccChannel(
-                    slotId[0],
-                    portId[0],
+            (scope, continuation) ->
+            {
+                return euiccChannelManager.withEuiccChannel
+                (
+                    slotId,
+                    portId,
                     operation,
                     continuation
                 );
@@ -168,16 +230,17 @@ public class LpaBridgeProvider extends ContentProvider
 
     // region Arg Helpers
 
+    // TODO: decode?
     private static Map<String, String> getArgsFromUri(Uri uri)
     {
-        var out = new HashMap<String, String>();
+        var args = new HashMap<String, String>();
 
         for (String name : uri.getQueryParameterNames())
         {
-            out.put(name, uri.getQueryParameter(name));
+            args.put(name, uri.getQueryParameter(name));
         }
     
-        return out;
+        return args;
     }
 
     private static boolean tryGet(Map<String, String> args, String key, String[] out)
@@ -193,20 +256,32 @@ public class LpaBridgeProvider extends ContentProvider
 
     private static boolean tryGetInt(Map<String, String> args, String key, int[] out)
     {
-        String[] tmp = new String[1];
+        String[] arg = new String[1];
 
-        if (!tryGet(args, key, tmp))
+        if (!tryGet(args, key, arg))
             return false;
 
         try
         {
-            out[0] = Integer.parseInt(tmp[0]);
+            out[0] = Integer.parseInt(arg[0]);
             return true;
         }
         catch (NumberFormatException ex)
         {
             return false;
         }
+    }
+
+    private void requireSlotAndPort(Map<String, String> args, int[] slotIdOut, int[] portIdOut) throws Exception
+    {
+        final String slotIdArg = "slotId";
+        final String portIdArg = "portId";
+
+        if (!tryGetInt(args, slotIdArg, slotIdOut))
+            throw new Exception("missing_arg_" + slotIdArg);
+
+        if (!tryGetInt(args, portIdArg, portIdOut))
+            throw new Exception("missing_arg_" + portIdArg);
     }
 
     // endregion
@@ -220,9 +295,9 @@ public class LpaBridgeProvider extends ContentProvider
         return rows;
     }
 
-    private static MatrixCursor row(String key, String value)
+    private static MatrixCursor row(String column, String value)
     {
-        return rows(new String[] { key }, value);
+        return rows(new String[] { column }, value);
     }
 
     private static MatrixCursor error(String message)
@@ -235,36 +310,30 @@ public class LpaBridgeProvider extends ContentProvider
         return new MatrixCursor(new String[0]);
     }
 
-    private static MatrixCursor projectColumns(MatrixCursor source, String[] projection)
+    private static MatrixCursor projectColumns(MatrixCursor rows, String[] projection)
     {
-        return projectColumns(source, projection, null);
+        return projectColumns(rows, projection, null);
     }
 
-    private static MatrixCursor projectColumns(MatrixCursor source, String[] projection, String[] preserve)
+    private static MatrixCursor projectColumns(MatrixCursor rows, String[] projection, String[] preserve)
     {
-        if (source == null)
-            return empty();
-
-        String[] sourceCols = source.getColumnNames();
+        String[] rowCols = rows.getColumnNames();
         var cols = new LinkedHashSet<String>();
 
         if (projection != null && projection.length > 0)
             Collections.addAll(cols, projection);
         else
-            Collections.addAll(cols, sourceCols);
+            Collections.addAll(cols, rowCols);
 
         if (preserve != null && preserve.length > 0)
         {
             for (String col : preserve)
             {
-                if (col == null)
-                    continue;
-
                 boolean exists = false;
 
-                for (String sourceCol : sourceCols)
+                for (String rowCol : rowCols)
                 {
-                    if (col.equals(sourceCol))
+                    if (col.equals(rowCol))
                     {
                         exists = true;
                         break;
@@ -277,18 +346,18 @@ public class LpaBridgeProvider extends ContentProvider
         }
 
         if (cols.isEmpty())
-            return source;
+            return rows;
 
         var outCols = cols.toArray(new String[0]);
-        var out = new MatrixCursor(outCols);
+        var outRows = new MatrixCursor(outCols);
 
-        while (source.moveToNext())
+        while (rows.moveToNext())
         {
             var row = new Object[outCols.length];
 
             for (int i = 0; i < outCols.length; i++)
             {
-                int index = source.getColumnIndex(outCols[i]);
+                int index = rows.getColumnIndex(outCols[i]);
 
                 if (index < 0)
                 {
@@ -296,31 +365,31 @@ public class LpaBridgeProvider extends ContentProvider
                     continue;
                 }
 
-                switch (source.getType(index))
+                switch (rows.getType(index))
                 {
                     case Cursor.FIELD_TYPE_NULL:
                         row[i] = null;
                         break;
                     case Cursor.FIELD_TYPE_INTEGER:
-                        row[i] = source.getLong(index);
+                        row[i] = rows.getLong(index);
                         break;
                     case Cursor.FIELD_TYPE_FLOAT:
-                        row[i] = source.getDouble(index);
+                        row[i] = rows.getDouble(index);
                         break;
                     case Cursor.FIELD_TYPE_BLOB:
-                        row[i] = source.getBlob(index);
+                        row[i] = rows.getBlob(index);
                         break;
                     case Cursor.FIELD_TYPE_STRING:
                     default:
-                        row[i] = source.getString(index);
+                        row[i] = rows.getString(index);
                         break;
                 }
             }
 
-            out.addRow(row);
+            outRows.addRow(row);
         }
 
-        return out;
+        return outRows;
     }
 
     // endregion

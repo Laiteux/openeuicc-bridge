@@ -7,6 +7,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.net.URLDecoder;
+import java.nio.charset.*;
 
 import kotlin.coroutines.Continuation;
 import kotlin.coroutines.CoroutineContext;
@@ -22,14 +24,17 @@ import android.database.MatrixCursor;
 import android.net.Uri;
 
 import im.angry.openeuicc.OpenEuiccApplication;
-import im.angry.openeuicc.core.DefaultEuiccChannelManager;
 import im.angry.openeuicc.core.EuiccChannel;
 import im.angry.openeuicc.core.EuiccChannelManager;
-import im.angry.openeuicc.util.LPAUtilsKt;
+import im.angry.openeuicc.core.DefaultEuiccChannelManager;
 import im.angry.openeuicc.util.UiccCardInfoCompat;
 import im.angry.openeuicc.util.UiccPortInfoCompat;
+import im.angry.openeuicc.util.UiccPortInfoCompat;
+import im.angry.openeuicc.util.LPAUtilsKt;
+import im.angry.openeuicc.util.ActivationCode;
 import im.angry.openeuicc.di.AppContainer;
 import net.typeblog.lpac_jni.LocalProfileInfo;
+import net.typeblog.lpac_jni.ProfileDownloadCallback;
 
 public class LpaBridgeProvider extends ContentProvider
 {
@@ -48,6 +53,7 @@ public class LpaBridgeProvider extends ContentProvider
         MatrixCursor rows;
 
         final String path = uri.getLastPathSegment();
+        final Map<String, String> args = getArgsFromUri(uri);
 
         if (path == null)
         {
@@ -57,8 +63,6 @@ public class LpaBridgeProvider extends ContentProvider
         {
             try
             {
-                final Map<String, String> args = getArgsFromUri(uri);
-
                 switch (path)
                 {
                     case "ping":
@@ -69,6 +73,27 @@ public class LpaBridgeProvider extends ContentProvider
                         break;
                     case "profiles":
                         rows = handleGetProfiles(args);
+                        break;
+                    case "activeProfile":
+                        rows = handleGetActiveProfile(args);
+                        break;
+                    case "downloadProfile":
+                        rows = handleDownloadProfile(args);
+                        break;
+                    case "deleteProfile":
+                        rows = handleDeleteProfile(args);
+                        break;
+                    case "enableProfile":
+                        rows = handleEnableProfile(args);
+                        break;
+                    case "disableProfile":
+                        rows = handleDisableProfile(args);
+                        break;
+                    case "disableActiveProfile":
+                        rows = handleDisableActiveProfile(args);
+                        break;
+                    case "switchProfile":
+                        rows = handleSwitchProfile(args);
                         break;
                     default:
                         rows = error("unknown_path");
@@ -114,9 +139,6 @@ public class LpaBridgeProvider extends ContentProvider
         var getUiccCardsMethod = DefaultEuiccChannelManager.class.getDeclaredMethod("getUiccCards");
         getUiccCardsMethod.setAccessible(true);
 
-        var findEuiccChannelByPortMethod = DefaultEuiccChannelManager.class.getDeclaredMethod("findEuiccChannelByPort", int.class, int.class, Continuation.class);
-        findEuiccChannelByPortMethod.setAccessible(true);
-
         @SuppressWarnings("unchecked")
         var cards = (Collection<UiccCardInfoCompat>) getUiccCardsMethod.invoke(euiccChannelManager);
 
@@ -133,22 +155,7 @@ public class LpaBridgeProvider extends ContentProvider
                 int slotId = card.getPhysicalSlotIndex();
                 int portId = port.getPortIndex();
 
-                @SuppressWarnings("unchecked")
-                var euiccChannel = (EuiccChannel) BuildersKt.runBlocking
-                (
-                    EmptyCoroutineContext.INSTANCE,
-                    (_, continuation) ->
-                    {
-                        try
-                        {
-                            return findEuiccChannelByPortMethod.invoke(euiccChannelManager, slotId, portId, continuation);
-                        }
-                        catch (Exception ex)
-                        {
-                            return null;
-                        }
-                    }
-                );
+                var euiccChannel = findEuiccChannel(euiccChannelManager, slotId, portId);
 
                 if (euiccChannel != null)
                 {
@@ -192,9 +199,199 @@ public class LpaBridgeProvider extends ContentProvider
         return rows;
     }
 
+    private MatrixCursor handleGetActiveProfile(Map<String, String> args) throws Exception
+    {
+        List<LocalProfileInfo> profiles = withEuiccChannel
+        (
+            args,
+            (channel, _) -> channel.getLpa().getProfiles()
+        );
+
+        var enabledProfile = LPAUtilsKt.getEnabled(profiles);
+
+        if (enabledProfile == null)
+            return empty();
+
+        return row("iccid", enabledProfile.getIccid()); 
+    }
+
+    private MatrixCursor handleDownloadProfile(Map<String, String> args) throws Exception
+    {
+        String[] address = new String[1];
+        String[] matchingId = { args.get("matchingId") };
+        String[] confirmationCode = { args.get("confirmationCode") };
+        String imei = args.get("imei");
+
+        String[] activationCodeArg = new String[1];
+
+        if (tryGetArgAsString(args, "activationCode", activationCodeArg))
+        {
+            var activationCode = ActivationCode.Companion.fromString(activationCodeArg[0]);
+
+            address[0] = activationCode.getAddress();
+            matchingId[0] = activationCode.getMatchingId();
+
+            if (activationCode.getConfirmationCodeRequired())
+                if (!tryGetArgAsString(args, "confirmationCode", confirmationCode))
+                    return missingArgError("confirmationCode");
+        }
+        else if (!tryGetArgAsString(args, "address", address))
+            return missingArgError("activationCode_or_address");
+
+        withEuiccChannel
+        (
+            args,
+            (channel, _) ->
+            {
+                channel.getLpa().downloadProfile
+                (
+                    address[0],
+                    matchingId[0],
+                    imei,
+                    confirmationCode[0],
+                    new ProfileDownloadCallback()
+                    {
+                        @Override
+                        public void onStateUpdate(ProfileDownloadCallback.DownloadState state)
+                        {
+                            // ignored
+                            // TODO: callbackUrl?
+                        }
+                    }
+                );
+
+                return null;
+            }
+        );
+
+        return success();
+    }
+
+    private MatrixCursor handleDeleteProfile(Map<String, String> args) throws Exception
+    {
+        String[] iccid = new String[1];
+
+        if (!tryGetArgAsString(args, "iccid", iccid))
+            return missingArgError("iccid");
+
+        boolean success = withEuiccChannel
+        (
+            args,
+            (channel, _) -> channel.getLpa().deleteProfile(iccid[0])
+        );
+
+        return success(success);
+    }
+
+    private MatrixCursor handleEnableProfile(Map<String, String> args) throws Exception
+    {
+        String[] iccid = new String[1];
+        boolean[] refresh = new boolean[1];
+
+        if (!tryGetArgAsString(args, "iccid", iccid))
+            return missingArgError("iccid");
+
+        if (!tryGetArgAsBoolean(args, "refresh", refresh))
+            refresh[0] = true;
+
+        boolean success = withEuiccChannel
+        (
+            args,
+            (channel, _) -> channel.getLpa().enableProfile(iccid[0], refresh[0])
+        );
+
+        return success(success);
+    }
+
+    private MatrixCursor handleDisableProfile(Map<String, String> args) throws Exception
+    {
+        String[] iccid = new String[1];
+        boolean[] refresh = new boolean[1];
+
+        if (!tryGetArgAsString(args, "iccid", iccid))
+            return missingArgError("iccid");
+
+        if (!tryGetArgAsBoolean(args, "refresh", refresh))
+            refresh[0] = true;
+
+        boolean success = withEuiccChannel
+        (
+            args,
+            (channel, _) -> channel.getLpa().disableProfile(iccid[0], refresh[0])
+        );
+
+        return success(success);
+    }
+
+    private MatrixCursor handleDisableActiveProfile(Map<String, String> args) throws Exception
+    {
+        boolean[] refresh = new boolean[1];
+
+        if (!tryGetArgAsBoolean(args, "refresh", refresh))
+            refresh[0] = true;
+
+        String iccid = withEuiccChannel
+        (
+            args,
+            (channel, _) -> LPAUtilsKt.disableActiveProfileKeepIccId(channel.getLpa(), refresh[0])
+        );
+
+        if (iccid == null)
+            return success(false);
+
+        return row("iccid", iccid);    
+    }
+
+    private MatrixCursor handleSwitchProfile(Map<String, String> args) throws Exception
+    {
+        String[] iccid = new String[1];
+        boolean[] enable = new boolean[1];
+        boolean[] refresh = new boolean[1];
+
+        if (!tryGetArgAsString(args, "iccid", iccid))
+            return missingArgError("iccid");
+
+        if (!tryGetArgAsBoolean(args, "enable", enable))
+            enable[0] = true;
+
+        if (!tryGetArgAsBoolean(args, "refresh", refresh))
+            refresh[0] = true;
+
+        boolean success = withEuiccChannel
+        (
+            args,
+            (channel, _) -> LPAUtilsKt.switchProfile(channel.getLpa(), iccid[0], enable[0], refresh[0])
+        );
+
+        return success(success);
+    }
+
     // endregion
 
     // region LPA Helpers
+
+    @SuppressWarnings("unchecked")
+    private EuiccChannel findEuiccChannel(DefaultEuiccChannelManager euiccChannelManager, int slotId, int portId) throws Exception
+    {
+        var findEuiccChannelByPortMethod = DefaultEuiccChannelManager.class.getDeclaredMethod("findEuiccChannelByPort", int.class, int.class, Continuation.class);
+        findEuiccChannelByPortMethod.setAccessible(true);
+
+        return (EuiccChannel) BuildersKt.runBlocking
+        (
+            EmptyCoroutineContext.INSTANCE,
+            (_, continuation) ->
+            {
+                try
+                {
+                    return findEuiccChannelByPortMethod.invoke(euiccChannelManager, slotId, portId, continuation);
+                }
+                catch (Exception ex)
+                {
+                    return null;
+                }
+            }
+        );
+    }
 
     private <T> T withEuiccChannel(Map<String, String> args, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
     {
@@ -213,16 +410,7 @@ public class LpaBridgeProvider extends ContentProvider
         return (T) BuildersKt.runBlocking
         (
             EmptyCoroutineContext.INSTANCE,
-            (scope, continuation) ->
-            {
-                return euiccChannelManager.withEuiccChannel
-                (
-                    slotId,
-                    portId,
-                    operation,
-                    continuation
-                );
-            }
+            (_, continuation) -> euiccChannelManager.withEuiccChannel(slotId, portId, operation, continuation)
         );
     }
 
@@ -230,20 +418,31 @@ public class LpaBridgeProvider extends ContentProvider
 
     // region Arg Helpers
 
-    // TODO: decode?
     private static Map<String, String> getArgsFromUri(Uri uri)
     {
         var args = new HashMap<String, String>();
 
         for (String name : uri.getQueryParameterNames())
         {
-            args.put(name, uri.getQueryParameter(name));
+            args.put(name, URLDecoder.decode(uri.getQueryParameter(name), StandardCharsets.UTF_8));
         }
     
         return args;
     }
 
-    private static boolean tryGet(Map<String, String> args, String key, String[] out)
+    private void requireSlotAndPort(Map<String, String> args, int[] slotIdOut, int[] portIdOut) throws Exception
+    {
+        final String slotIdArg = "slotId";
+        final String portIdArg = "portId";
+
+        if (!tryGetArgAsInt(args, slotIdArg, slotIdOut))
+            throw new Exception("missing_arg_" + slotIdArg);
+
+        if (!tryGetArgAsInt(args, portIdArg, portIdOut))
+            throw new Exception("missing_arg_" + portIdArg);
+    }
+
+    private static boolean tryGetArgAsString(Map<String, String> args, String key, String[] out)
     {
         String arg = args.get(key);
 
@@ -254,11 +453,11 @@ public class LpaBridgeProvider extends ContentProvider
         return true;
     }
 
-    private static boolean tryGetInt(Map<String, String> args, String key, int[] out)
+    private static boolean tryGetArgAsInt(Map<String, String> args, String key, int[] out)
     {
         String[] arg = new String[1];
 
-        if (!tryGet(args, key, arg))
+        if (!tryGetArgAsString(args, key, arg))
             return false;
 
         try
@@ -272,37 +471,60 @@ public class LpaBridgeProvider extends ContentProvider
         }
     }
 
-    private void requireSlotAndPort(Map<String, String> args, int[] slotIdOut, int[] portIdOut) throws Exception
+    private static boolean tryGetArgAsBoolean(Map<String, String> args, String key, boolean[] out)
     {
-        final String slotIdArg = "slotId";
-        final String portIdArg = "portId";
+        String[] arg = new String[1];
 
-        if (!tryGetInt(args, slotIdArg, slotIdOut))
-            throw new Exception("missing_arg_" + slotIdArg);
+        if (!tryGetArgAsString(args, key, arg))
+            return false;
 
-        if (!tryGetInt(args, portIdArg, portIdOut))
-            throw new Exception("missing_arg_" + portIdArg);
+        out[0] = arg[0].equals("1")
+            || arg[0].toLowerCase().startsWith("y")
+            || arg[0].equalsIgnoreCase("on")
+            || arg[0].equalsIgnoreCase("true");
+
+        return true;
     }
 
     // endregion
 
     // region Row Helpers
 
-    private static MatrixCursor rows(String[] columns, Object... values)
+    private static MatrixCursor rows(String[] columns, Object[][] values)
     {
         var rows = new MatrixCursor(columns);
-        rows.addRow(values);
+
+        for (Object[] rowValues : values)
+        {
+            rows.addRow(rowValues);
+        }
+
         return rows;
     }
 
     private static MatrixCursor row(String column, String value)
     {
-        return rows(new String[] { column }, value);
+        return rows(new String[] { column }, new Object[][] { new Object[] { value } });
+    }
+
+    private static MatrixCursor success()
+    {
+        return success(true);
+    }
+
+    private static MatrixCursor success(boolean success)
+    {
+        return row("success", Boolean.toString(success));
     }
 
     private static MatrixCursor error(String message)
     {
         return row("error", message);
+    }
+
+    private static MatrixCursor missingArgError(String argName)
+    {
+        return error("missing_arg_" + argName);
     }
 
     private static MatrixCursor empty()

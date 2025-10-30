@@ -4,9 +4,13 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.Set;
 import java.util.LinkedHashSet;
+import java.util.Arrays;
+import java.util.stream.Stream;
 import java.time.Instant;
 import java.nio.charset.*;
 import java.net.URI;
@@ -68,33 +72,51 @@ public class LpaBridgeProvider extends ContentProvider
                 switch (path)
                 {
                     case "ping":
+                        // out: ping=pong
                         rows = handlePing(args);
                         break;
                     case "cards":
+                        // out (many, can be empty): slotId, portId
                         rows = handleGetCards(args);
                         break;
                     case "profiles":
+                        // in: slotId, portId
+                        // out (many, can be empty): iccid, isEnabled, displayName
                         rows = handleGetProfiles(args);
                         break;
-                    case "activeProfile":
-                        rows = handleGetActiveProfile(args);
-                        break;
                     case "downloadProfile":
+                        // in: (slotId, portId) AND (activationCode OR address, matchingId?, confirmationCode?) AND imei?
+                        // out: success
                         rows = handleDownloadProfile(args);
                         break;
                     case "deleteProfile":
+                        // in: slotId, portId, iccid
+                        // out: success
                         rows = handleDeleteProfile(args);
                         break;
                     case "enableProfile":
+                        // in: slotId, portId, iccid, refresh(true)
+                        // out: success
                         rows = handleEnableProfile(args);
                         break;
                     case "disableProfile":
+                        // in: slotId, portId, iccid, refresh(true)
+                        // out: success
                         rows = handleDisableProfile(args);
                         break;
+                    case "activeProfile":
+                        // in: slotId, portId
+                        // out (single, can be empty): iccid, isEnabled, displayName
+                        rows = handleGetActiveProfile(args);
+                        break;
                     case "disableActiveProfile":
+                        // in: slotId, portId, refresh(true)
+                        // out (single, can be empty): iccid, isEnabled, displayName
                         rows = handleDisableActiveProfile(args);
                         break;
                     case "switchProfile":
+                        // in: slotId, portId, iccid, enable(true), refresh(true)
+                        // out: success
                         rows = handleSwitchProfile(args);
                         break;
                     default:
@@ -181,42 +203,10 @@ public class LpaBridgeProvider extends ContentProvider
             (channel, _) -> channel.getLpa().getProfiles()
         );
 
-        var rows = new MatrixCursor(new String[]
-        {
-            "iccid",
-            "isEnabled",
-            "displayName"
-        });
-
-        for (LocalProfileInfo profile : profiles)
-        {
-            rows.addRow(new Object[]
-            {
-                profile.getIccid(),
-                LPAUtilsKt.isEnabled(profile),
-                LPAUtilsKt.getDisplayName(profile)
-            });
-        }
-
-        return rows;
+        return profiles(profiles);
     }
 
-    private MatrixCursor handleGetActiveProfile(Map<String, String> args) throws Exception
-    {
-        List<LocalProfileInfo> profiles = withEuiccChannel
-        (
-            args,
-            (channel, _) -> channel.getLpa().getProfiles()
-        );
-
-        var enabledProfile = LPAUtilsKt.getEnabled(profiles);
-
-        if (enabledProfile == null)
-            return empty();
-
-        return row("iccid", enabledProfile.getIccid()); 
-    }
-
+    // TODO: find a way to return profile()
     private MatrixCursor handleDownloadProfile(Map<String, String> args) throws Exception
     {
         String[] address = new String[1];
@@ -251,7 +241,7 @@ public class LpaBridgeProvider extends ContentProvider
                     matchingId[0],
                     imei,
                     confirmationCode[0],
-                    new ProfileDownloadCallback()
+                    new ProfileDownloadCallback() // TODO: move to a static or smth? unsure as this will only be used here anyway
                     {
                         @Override
                         public void onStateUpdate(ProfileDownloadCallback.DownloadState state)
@@ -353,6 +343,22 @@ public class LpaBridgeProvider extends ContentProvider
         return success(success);
     }
 
+    private MatrixCursor handleGetActiveProfile(Map<String, String> args) throws Exception
+    {
+        List<LocalProfileInfo> profiles = withEuiccChannel
+        (
+            args,
+            (channel, _) -> channel.getLpa().getProfiles()
+        );
+
+        var enabledProfile = LPAUtilsKt.getEnabled(profiles);
+
+        if (enabledProfile == null)
+            return empty();
+
+        return profile(enabledProfile); 
+    }
+
     private MatrixCursor handleDisableActiveProfile(Map<String, String> args) throws Exception
     {
         boolean[] refresh = new boolean[1];
@@ -367,9 +373,23 @@ public class LpaBridgeProvider extends ContentProvider
         );
 
         if (iccid == null)
-            return success(false);
+            return empty();
 
-        return row("iccid", iccid);    
+        List<LocalProfileInfo> profiles = withEuiccChannel
+        (
+            args,
+            (channel, _) -> channel.getLpa().getProfiles()
+        );
+
+        var profile = profiles.stream()
+            .filter(profile -> profile.getIccid().equals(iccid))
+            .findFirst()
+            .orElse(null); // should never be null
+
+        if (profile == null)
+            return empty();
+
+        return profile(profile);   
     }
 
     private MatrixCursor handleSwitchProfile(Map<String, String> args) throws Exception
@@ -423,15 +443,6 @@ public class LpaBridgeProvider extends ContentProvider
         );
     }
 
-    private <T> T withEuiccChannel(Map<String, String> args, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
-    {
-        var slotId = new int[1];
-        var portId = new int[1];
-        requireSlotAndPort(args, slotId, portId);
-
-        return withEuiccChannel(slotId[0], portId[0], operation);
-    }
-
     @SuppressWarnings("unchecked")
     private <T> T withEuiccChannel(int slotId, int portId, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
     {
@@ -444,13 +455,22 @@ public class LpaBridgeProvider extends ContentProvider
         );
     }
 
+    private <T> T withEuiccChannel(Map<String, String> args, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
+    {
+        var slotId = new int[1];
+        var portId = new int[1];
+        requireSlotAndPort(args, slotId, portId);
+
+        return withEuiccChannel(slotId[0], portId[0], operation);
+    }
+
     // endregion
 
     // region Arg Helpers
 
     private static Map<String, String> getArgsFromUri(Uri uri)
     {
-        var args = new HashMap<String, String>();
+        var args = new LinkedHashMap<String, String>();
 
         for (String name : uri.getQueryParameterNames())
         {
@@ -458,18 +478,6 @@ public class LpaBridgeProvider extends ContentProvider
         }
     
         return args;
-    }
-
-    private void requireSlotAndPort(Map<String, String> args, int[] slotIdOut, int[] portIdOut) throws Exception
-    {
-        final String slotIdArg = "slotId";
-        final String portIdArg = "portId";
-
-        if (!tryGetArgAsInt(args, slotIdArg, slotIdOut))
-            throw new Exception("missing_arg_" + slotIdArg);
-
-        if (!tryGetArgAsInt(args, portIdArg, portIdOut))
-            throw new Exception("missing_arg_" + portIdArg);
     }
 
     private static boolean tryGetArgAsString(Map<String, String> args, String key, String[] out)
@@ -516,6 +524,18 @@ public class LpaBridgeProvider extends ContentProvider
         return true;
     }
 
+    private void requireSlotAndPort(Map<String, String> args, int[] slotIdOut, int[] portIdOut) throws Exception
+    {
+        final String slotIdArg = "slotId";
+        final String portIdArg = "portId";
+
+        if (!tryGetArgAsInt(args, slotIdArg, slotIdOut))
+            throw new Exception("missing_arg_" + slotIdArg);
+
+        if (!tryGetArgAsInt(args, portIdArg, portIdOut))
+            throw new Exception("missing_arg_" + portIdArg);
+    }
+
     // endregion
 
     // region Row Helpers
@@ -535,6 +555,11 @@ public class LpaBridgeProvider extends ContentProvider
     private static MatrixCursor row(String column, String value)
     {
         return rows(new String[] { column }, new Object[][] { new Object[] { value } });
+    }
+
+    private static MatrixCursor empty()
+    {
+        return new MatrixCursor(new String[0]);
     }
 
     private static MatrixCursor success()
@@ -557,9 +582,30 @@ public class LpaBridgeProvider extends ContentProvider
         return error("missing_arg_" + argName);
     }
 
-    private static MatrixCursor empty()
+    private static MatrixCursor profile(LocalProfileInfo profile)
     {
-        return new MatrixCursor(new String[0]);
+        return profiles(Collections.singletonList(profile));
+    }
+
+    private static MatrixCursor profiles(List<LocalProfileInfo> profiles)
+    {
+        String[] columns =
+        {
+            "iccid",
+            "isEnabled",
+            "displayName"
+        };
+
+        Object[][] rows = profiles.stream()
+            .map(profile -> new Object[]
+            {
+                profile.getIccid(),
+                LPAUtilsKt.isEnabled(profile),
+                LPAUtilsKt.getDisplayName(profile)
+            })
+            .toArray(Object[][]::new);
+
+        return rows(columns, rows);
     }
 
     private static MatrixCursor projectColumns(MatrixCursor rows, String[] projection)
@@ -570,30 +616,21 @@ public class LpaBridgeProvider extends ContentProvider
     private static MatrixCursor projectColumns(MatrixCursor rows, String[] projection, String[] preserve)
     {
         String[] rowCols = rows.getColumnNames();
+        Set<String> available = new LinkedHashSet<>(Arrays.asList(rowCols));
         var cols = new LinkedHashSet<String>();
 
         if (projection != null && projection.length > 0)
-            Collections.addAll(cols, projection);
+            cols.addAll(Arrays.asList(projection));
         else
-            Collections.addAll(cols, rowCols);
+            cols.addAll(available);
 
         if (preserve != null && preserve.length > 0)
         {
             for (String col : preserve)
             {
-                boolean exists = false;
-
-                for (String rowCol : rowCols)
-                {
-                    if (col.equals(rowCol))
-                    {
-                        exists = true;
-                        break;
-                    }
-                }
-
-                if (exists)
-                    cols.add(col);
+                Stream.of(preserve)
+                    .filter(available::contains)
+                    .forEach(cols::add);
             }
         }
 
@@ -670,5 +707,4 @@ public class LpaBridgeProvider extends ContentProvider
     }
 
     // endregion
-
 }

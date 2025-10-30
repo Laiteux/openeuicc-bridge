@@ -5,10 +5,10 @@ set -euo pipefail
 APP_PKG="uk.simlink.lpa"
 JAVA_PKG="im.angry.openeuicc.bridge"
 APKTOOL_TREE="eazyeuicc"
+SRC_DIR="src"
 OUT_DIR="out"
-SRC_ROOT="src"
+DEPS_DIR="deps"
 ORIG_APK="eazyeuicc.apk"
-APP_JAR="deps/eazyeuicc.jar"
 BAKSMALI_JAR="tools/baksmali.jar"
 # ============================================================================
 
@@ -22,7 +22,7 @@ pick_smali_bucket() {
 
 # Derived paths/names
 SMALI_PKG_DIR="${JAVA_PKG//.//}"
-SRC_PKG_DIR="${SRC_ROOT}/${SMALI_PKG_DIR}"
+SRC_PKG_DIR="${SRC_DIR}/${SMALI_PKG_DIR}"
 TARGET_SMALI_ROOT="$(pick_smali_bucket)"
 TARGET_SMALI_DIR="${TARGET_SMALI_ROOT}/${SMALI_PKG_DIR}"
 
@@ -46,14 +46,16 @@ command -v keytool >/dev/null || { echo "ERROR: keytool not found"; exit 1; }
 [[ -f "$BAKSMALI_JAR" ]] || { echo "ERROR: baksmali jar missing: $BAKSMALI_JAR"; exit 1; }
 [[ -d "$APKTOOL_TREE" ]] || { echo "ERROR: apktool tree missing: $APKTOOL_TREE"; exit 1; }
 [[ -d "$SRC_PKG_DIR" ]]  || { echo "ERROR: source package dir missing: $SRC_PKG_DIR"; exit 1; }
+mkdir -p "$DEPS_DIR"
 
 # Ensure we have a complete classpath jar containing ALL dexes (kotlin, coroutines, lpac_jni, etc.)
 rebuild_cp_jar() {
   local apk="$1"
-  local dexdir="deps/_dex"
-  local mergedir="deps/_merge"
+  local dexdir="$DEPS_DIR/_dex"
+  local mergedir="$DEPS_DIR/_merge"
+  local jar_out="$DEPS_DIR/eazyeuicc.jar"
   rm -rf "$dexdir" "$mergedir"
-  mkdir -p "$dexdir" "$mergedir" deps
+  mkdir -p "$dexdir" "$mergedir"
 
   echo "[dex] extracting classes*.dex from $apk"
   unzip -q -j "$apk" 'classes*.dex' -d "$dexdir"
@@ -69,11 +71,12 @@ rebuild_cp_jar() {
   done
   [[ $any -eq 1 ]] || { echo "ERROR: no classes*.dex found in $apk"; exit 1; }
 
-  (cd "$mergedir" && jar cf ../eazyeuicc.jar .)
+  (cd "$mergedir" && jar cf "../eazyeuicc.jar" .)
   rm -rf "$dexdir" "$mergedir"
 }
 
-# (Re)build classpath jar if missing or incomplete
+# (Re)build deps jar if missing or incomplete
+APP_JAR="$DEPS_DIR/eazyeuicc.jar"
 need_rebuild=0
 if [[ ! -f "$APP_JAR" ]]; then
   need_rebuild=1
@@ -104,8 +107,10 @@ rm -rf "$APKTOOL_TREE/build"
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"/{classes,dex,smali}
 
+# Build classpath from all jars in deps
+CP="$ANDROID_JAR:$(find "$DEPS_DIR" -maxdepth 1 -type f -name '*.jar' | paste -sd: -)"
+
 # Compile
-CP="$ANDROID_JAR:$APP_JAR"
 javac \
   -source 23 -target 23 \
   -classpath "$CP" \
@@ -114,13 +119,18 @@ javac \
   -d "$OUT_DIR/classes" \
   "${JAVA_SOURCES[@]}"
 
-
 # DEX
+D8_CLASSPATH_ARGS=()
+IFS=':' read -ra CP_ENTRIES <<< "$CP"
+for entry in "${CP_ENTRIES[@]}"; do
+  D8_CLASSPATH_ARGS+=(--classpath "$entry")
+done
 "$BT/d8" \
   --lib "$ANDROID_JAR" \
-  --classpath "$APP_JAR" \
+  "${D8_CLASSPATH_ARGS[@]}" \
   --output "$OUT_DIR/dex" \
   $(find "$OUT_DIR/classes" -type f -name '*.class')
+
 
 # Smali
 found_dex=0

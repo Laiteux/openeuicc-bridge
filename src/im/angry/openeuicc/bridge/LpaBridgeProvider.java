@@ -1,21 +1,23 @@
 package im.angry.openeuicc.bridge;
 
-import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
-import java.net.URLDecoder;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.time.Instant;
 import java.nio.charset.*;
+import java.net.URI;
+import java.net.URL;
+import java.net.URLDecoder;
+import java.net.HttpURLConnection;
 
-import kotlin.coroutines.Continuation;
-import kotlin.coroutines.CoroutineContext;
-import kotlin.coroutines.EmptyCoroutineContext;
 import kotlin.jvm.functions.Function2;
+import kotlin.coroutines.Continuation;
+import kotlin.coroutines.EmptyCoroutineContext;
 import kotlinx.coroutines.BuildersKt;
-import kotlinx.coroutines.CoroutineScope;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -23,16 +25,16 @@ import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
 
+import com.google.gson.GsonBuilder;
+
 import im.angry.openeuicc.OpenEuiccApplication;
+import im.angry.openeuicc.di.AppContainer;
 import im.angry.openeuicc.core.EuiccChannel;
-import im.angry.openeuicc.core.EuiccChannelManager;
 import im.angry.openeuicc.core.DefaultEuiccChannelManager;
 import im.angry.openeuicc.util.UiccCardInfoCompat;
 import im.angry.openeuicc.util.UiccPortInfoCompat;
-import im.angry.openeuicc.util.UiccPortInfoCompat;
 import im.angry.openeuicc.util.LPAUtilsKt;
 import im.angry.openeuicc.util.ActivationCode;
-import im.angry.openeuicc.di.AppContainer;
 import net.typeblog.lpac_jni.LocalProfileInfo;
 import net.typeblog.lpac_jni.ProfileDownloadCallback;
 
@@ -254,8 +256,36 @@ public class LpaBridgeProvider extends ContentProvider
                         @Override
                         public void onStateUpdate(ProfileDownloadCallback.DownloadState state)
                         {
-                            // ignored
-                            // TODO: callbackUrl?
+                            new Thread(() ->
+                            {
+                                try
+                                {
+                                    String[] callbackUrl = new String[1];
+
+                                    // TODO: test if it works
+                                    if (tryGetArgAsString(args, "callbackUrl", callbackUrl))
+                                    {
+                                        var url = new URI(callbackUrl[0]).toURL();
+
+                                        var data = new LinkedHashMap<String, Object>()
+                                        {{
+                                            put("timestamp", Instant.now().getEpochSecond());
+                                            put("state", state.name());
+                                            put("progress", state.getProgress());
+                                            put("address", address[0]);
+                                            put("matchingId", matchingId[0]);
+                                            put("confirmationCode", confirmationCode[0]);
+                                            put("imei", imei);
+                                        }};
+
+                                        httpPostAsJson(url, data);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    // ignored
+                                }
+                            }).start();
                         }
                     }
                 );
@@ -615,4 +645,30 @@ public class LpaBridgeProvider extends ContentProvider
     }
 
     // endregion
+
+    // region HTTP Helpers
+
+    private void httpPostAsJson(URL url, Map<String, Object> data) throws Exception
+    {
+        String json = new GsonBuilder()
+            .serializeNulls()
+            .create()
+            .toJson(data);
+
+        var httpConnection = (HttpURLConnection) url.openConnection();
+
+        httpConnection.setRequestMethod("POST");
+        httpConnection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+        httpConnection.setDoOutput(true);
+
+        try (var outputStream = httpConnection.getOutputStream())
+        {
+            outputStream.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        httpConnection.getInputStream().close();
+    }
+
+    // endregion
+
 }

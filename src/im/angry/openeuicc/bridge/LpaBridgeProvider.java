@@ -106,11 +106,6 @@ public class LpaBridgeProvider extends ContentProvider
                                             // out (many, can be empty): string iccid, bool isEnabled, string name, string nickname
                                             rows = handleGetProfiles(args);
                                             break;
-                                        case "activeProfile":
-                                            // in: int slotId, int portId
-                                            // out (single, can be empty): string iccid, bool isEnabled, string name, string nickname
-                                            rows = handleGetActiveProfile(args);
-                                            break;
                                         case "downloadProfile":
                                             // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei
                                             // out (single, can be empty): string iccid, bool isEnabled, string name, string nickname
@@ -130,11 +125,6 @@ public class LpaBridgeProvider extends ContentProvider
                                             // in: int slotId, int portId, string iccid, bool refresh=true
                                             // out: bool success
                                             rows = handleDisableProfile(args);
-                                            break;
-                                        case "disableActiveProfile":
-                                            // in: int slotId, int portId, bool refresh=true
-                                            // out: bool success
-                                            rows = handleDisableActiveProfile(args);
                                             break;
                                         case "switchProfile":
                                             // in: int slotId, int portId, string iccid, bool enable=true, bool refresh=true
@@ -243,22 +233,6 @@ public class LpaBridgeProvider extends ContentProvider
         );
 
         return profiles(profiles);
-    }
-
-    private MatrixCursor handleGetActiveProfile(Map<String, String> args) throws Exception
-    {
-        List<LocalProfileInfo> profiles = withEuiccChannel
-        (
-            args,
-            (channel, _) -> channel.getLpa().getProfiles()
-        );
-
-        var enabledProfile = LPAUtilsKt.getEnabled(profiles);
-
-        if (enabledProfile == null)
-            return empty();
-
-        return profile(enabledProfile);
     }
 
     private MatrixCursor handleDownloadProfile(Map<String, String> args) throws Exception
@@ -419,41 +393,6 @@ public class LpaBridgeProvider extends ContentProvider
         );
 
         return success(success);
-    }
-
-    private MatrixCursor handleDisableActiveProfile(Map<String, String> args) throws Exception
-    {
-        boolean[] refresh = new boolean[1];
-
-        if (!tryGetArgAsBoolean(args, "refresh", refresh))
-            refresh[0] = true;
-
-        String iccid = withEuiccChannel
-        (
-            args,
-            (channel, _) -> LPAUtilsKt.disableActiveProfileKeepIccId(channel.getLpa(), refresh[0])
-        );
-
-        return success();
-
-        // if (iccid == null)
-        //     return empty();
-
-        // List<LocalProfileInfo> profiles = withEuiccChannel
-        // (
-        //     args,
-        //     (channel, _) -> channel.getLpa().getProfiles()
-        // );
-
-        // var profile = profiles.stream()
-        //     .filter(p -> iccid.equals(p.getIccid()))
-        //     .findFirst()
-        //     .get();
-
-        // if (profile == null)
-        //     return empty();
-
-        // return profile(profile);
     }
 
     private MatrixCursor handleSwitchProfile(Map<String, String> args) throws Exception

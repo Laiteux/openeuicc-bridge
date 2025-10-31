@@ -133,7 +133,7 @@ public class LpaBridgeProvider extends ContentProvider
                                             break;
                                         case "disableActiveProfile":
                                             // in: slotId, portId, refresh(true)
-                                            // out (single, can be empty): iccid, isEnabled, name, nickname
+                                            // out: success
                                             rows = handleDisableActiveProfile(args);
                                             break;
                                         case "switchProfile":
@@ -418,7 +418,7 @@ public class LpaBridgeProvider extends ContentProvider
         if (enabledProfile == null)
             return empty();
 
-        return profile(enabledProfile); 
+        return profile(enabledProfile);
     }
 
     private MatrixCursor handleDisableActiveProfile(Map<String, String> args) throws Exception
@@ -434,24 +434,26 @@ public class LpaBridgeProvider extends ContentProvider
             (channel, _) -> LPAUtilsKt.disableActiveProfileKeepIccId(channel.getLpa(), refresh[0])
         );
 
-        if (iccid == null)
-            return empty();
+        return success();
 
-        List<LocalProfileInfo> profiles = withEuiccChannel
-        (
-            args,
-            (channel, _) -> channel.getLpa().getProfiles()
-        );
+        // if (iccid == null)
+        //     return empty();
 
-        var profile = profiles.stream()
-            .filter(p -> p.getIccid().equals(iccid))
-            .findFirst()
-            .orElse(null); // should never be null
+        // List<LocalProfileInfo> profiles = withEuiccChannel
+        // (
+        //     args,
+        //     (channel, _) -> channel.getLpa().getProfiles()
+        // );
 
-        if (profile == null)
-            return empty();
+        // var profile = profiles.stream()
+        //     .filter(p -> iccid.equals(p.getIccid()))
+        //     .findFirst()
+        //     .get();
 
-        return profile(profile);   
+        // if (profile == null)
+        //     return empty();
+
+        // return profile(profile);
     }
 
     private MatrixCursor handleSwitchProfile(Map<String, String> args) throws Exception
@@ -562,7 +564,7 @@ public class LpaBridgeProvider extends ContentProvider
         {
             args.put(name, URLDecoder.decode(uri.getQueryParameter(name), StandardCharsets.UTF_8));
         }
-    
+
         return args;
     }
 

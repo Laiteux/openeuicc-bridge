@@ -106,6 +106,11 @@ public class LpaBridgeProvider extends ContentProvider
                                             // out (many, can be empty): iccid, isEnabled, name, nickname
                                             rows = handleGetProfiles(args);
                                             break;
+                                        case "activeProfile":
+                                            // in: slotId, portId
+                                            // out (single, can be empty): iccid, isEnabled, name, nickname
+                                            rows = handleGetActiveProfile(args);
+                                            break;
                                         case "downloadProfile":
                                             // in: (slotId, portId) AND (activationCode OR address, matchingId?, confirmationCode?) AND imei?
                                             // out (single, can be empty): iccid, isEnabled, name, nickname
@@ -125,11 +130,6 @@ public class LpaBridgeProvider extends ContentProvider
                                             // in: slotId, portId, iccid, refresh(true)
                                             // out: success
                                             rows = handleDisableProfile(args);
-                                            break;
-                                        case "activeProfile":
-                                            // in: slotId, portId
-                                            // out (single, can be empty): iccid, isEnabled, name, nickname
-                                            rows = handleGetActiveProfile(args);
                                             break;
                                         case "disableActiveProfile":
                                             // in: slotId, portId, refresh(true)
@@ -243,6 +243,22 @@ public class LpaBridgeProvider extends ContentProvider
         );
 
         return profiles(profiles);
+    }
+
+    private MatrixCursor handleGetActiveProfile(Map<String, String> args) throws Exception
+    {
+        List<LocalProfileInfo> profiles = withEuiccChannel
+        (
+            args,
+            (channel, _) -> channel.getLpa().getProfiles()
+        );
+
+        var enabledProfile = LPAUtilsKt.getEnabled(profiles);
+
+        if (enabledProfile == null)
+            return empty();
+
+        return profile(enabledProfile);
     }
 
     private MatrixCursor handleDownloadProfile(Map<String, String> args) throws Exception
@@ -403,22 +419,6 @@ public class LpaBridgeProvider extends ContentProvider
         );
 
         return success(success);
-    }
-
-    private MatrixCursor handleGetActiveProfile(Map<String, String> args) throws Exception
-    {
-        List<LocalProfileInfo> profiles = withEuiccChannel
-        (
-            args,
-            (channel, _) -> channel.getLpa().getProfiles()
-        );
-
-        var enabledProfile = LPAUtilsKt.getEnabled(profiles);
-
-        if (enabledProfile == null)
-            return empty();
-
-        return profile(enabledProfile);
     }
 
     private MatrixCursor handleDisableActiveProfile(Map<String, String> args) throws Exception

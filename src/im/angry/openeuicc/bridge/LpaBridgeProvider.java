@@ -94,56 +94,56 @@ public class LpaBridgeProvider extends ContentProvider
                                     switch (path)
                                     {
                                         case "ping":
-                                            // out: ping=pong
+                                            // out: string ping=pong
                                             rows = handlePing(args);
                                             break;
                                         case "cards":
-                                            // out (many, can be empty): slotId, portId
+                                            // out (many, can be empty): int slotId, int portId
                                             rows = handleGetCards(args);
                                             break;
                                         case "profiles":
-                                            // in: slotId, portId
-                                            // out (many, can be empty): iccid, isEnabled, name, nickname
+                                            // in: int slotId, int portId
+                                            // out (many, can be empty): string iccid, bool isEnabled, string name, string nickname
                                             rows = handleGetProfiles(args);
                                             break;
                                         case "activeProfile":
-                                            // in: slotId, portId
-                                            // out (single, can be empty): iccid, isEnabled, name, nickname
+                                            // in: int slotId, int portId
+                                            // out (single, can be empty): string iccid, bool isEnabled, string name, string nickname
                                             rows = handleGetActiveProfile(args);
                                             break;
                                         case "downloadProfile":
-                                            // in: (slotId, portId) AND (activationCode OR address, matchingId?, confirmationCode?) AND imei?
-                                            // out (single, can be empty): iccid, isEnabled, name, nickname
+                                            // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei
+                                            // out (single, can be empty): string iccid, bool isEnabled, string name, string nickname
                                             rows = handleDownloadProfile(args);
                                             break;
                                         case "deleteProfile":
-                                            // in: slotId, portId, iccid
-                                            // out: success
+                                            // in: int slotId, int portId, string iccid
+                                            // out: bool success
                                             rows = handleDeleteProfile(args);
                                             break;
                                         case "enableProfile":
-                                            // in: slotId, portId, iccid, refresh(true)
-                                            // out: success
+                                            // in: int slotId, int portId, string iccid, bool refresh=true
+                                            // out: bool success
                                             rows = handleEnableProfile(args);
                                             break;
                                         case "disableProfile":
-                                            // in: slotId, portId, iccid, refresh(true)
-                                            // out: success
+                                            // in: int slotId, int portId, string iccid, bool refresh=true
+                                            // out: bool success
                                             rows = handleDisableProfile(args);
                                             break;
                                         case "disableActiveProfile":
-                                            // in: slotId, portId, refresh(true)
-                                            // out: success
+                                            // in: int slotId, int portId, bool refresh=true
+                                            // out: bool success
                                             rows = handleDisableActiveProfile(args);
                                             break;
                                         case "switchProfile":
-                                            // in: slotId, portId, iccid, enable(true), refresh(true)
-                                            // out: success
+                                            // in: int slotId, int portId, string iccid, bool enable=true, bool refresh=true
+                                            // out: bool success
                                             rows = handleSwitchProfile(args);
                                             break;
                                         case "setNickname":
-                                            // in: slotId, portId, iccid, nickname
-                                            // out: success
+                                            // in: int slotId, int portId, string iccid, string nickname
+                                            // out: bool success
                                             rows = handleSetNickname(args);
                                             break;
                                         default:

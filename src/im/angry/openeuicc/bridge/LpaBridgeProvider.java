@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.LinkedHashSet;
 import java.util.Arrays;
 import java.util.stream.Stream;
+import java.util.stream.Collectors;
 import java.time.Instant;
 import java.nio.charset.*;
 import java.net.URI;
@@ -86,7 +87,7 @@ public class LpaBridgeProvider extends ContentProvider
                         break;
                     case "downloadProfile":
                         // in: (slotId, portId) AND (activationCode OR address, matchingId?, confirmationCode?) AND imei?
-                        // out: success
+                        // out (single, can be empty): iccid, isEnabled, name, nickname
                         rows = handleDownloadProfile(args);
                         break;
                     case "deleteProfile":
@@ -211,7 +212,6 @@ public class LpaBridgeProvider extends ContentProvider
         return profiles(profiles);
     }
 
-    // TODO: find a way to return profile()
     private MatrixCursor handleDownloadProfile(Map<String, String> args) throws Exception
     {
         String[] address = new String[1];
@@ -234,6 +234,16 @@ public class LpaBridgeProvider extends ContentProvider
         }
         else if (!tryGetArgAsString(args, "address", address))
             return missingArgError("activationCode_or_address");
+
+        List<LocalProfileInfo> profilesBefore = withEuiccChannel
+        (
+            args,
+            (channel, _) -> channel.getLpa().getProfiles()
+        );
+
+        var iccidsBefore = profilesBefore.stream()
+            .map(LocalProfileInfo::getIccid)
+            .collect(Collectors.toSet());
 
         withEuiccChannel
         (
@@ -289,7 +299,21 @@ public class LpaBridgeProvider extends ContentProvider
             }
         );
 
-        return success();
+        List<LocalProfileInfo> profilesAfter = withEuiccChannel
+        (
+            args,
+            (channel, _) -> channel.getLpa().getProfiles()
+        );
+
+        var downloadedProfile = profilesAfter.stream()
+            .filter(p -> !iccidsBefore.contains(p.getIccid()))
+            .findFirst()
+            .orElse(null);
+
+        if (downloadedProfile == null)
+            return empty();
+
+        return profile(downloadedProfile);
     }
 
     private MatrixCursor handleDeleteProfile(Map<String, String> args) throws Exception

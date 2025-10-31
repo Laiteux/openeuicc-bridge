@@ -81,7 +81,7 @@ public class LpaBridgeProvider extends ContentProvider
                         break;
                     case "profiles":
                         // in: slotId, portId
-                        // out (many, can be empty): iccid, isEnabled, displayName
+                        // out (many, can be empty): iccid, isEnabled, name, nickname
                         rows = handleGetProfiles(args);
                         break;
                     case "downloadProfile":
@@ -106,18 +106,23 @@ public class LpaBridgeProvider extends ContentProvider
                         break;
                     case "activeProfile":
                         // in: slotId, portId
-                        // out (single, can be empty): iccid, isEnabled, displayName
+                        // out (single, can be empty): iccid, isEnabled, name, nickname
                         rows = handleGetActiveProfile(args);
                         break;
                     case "disableActiveProfile":
                         // in: slotId, portId, refresh(true)
-                        // out (single, can be empty): iccid, isEnabled, displayName
+                        // out (single, can be empty): iccid, isEnabled, name, nickname
                         rows = handleDisableActiveProfile(args);
                         break;
                     case "switchProfile":
                         // in: slotId, portId, iccid, enable(true), refresh(true)
                         // out: success
                         rows = handleSwitchProfile(args);
+                        break;
+                    case "setNickname":
+                        // in: slotId, portId, iccid, nickname
+                        // out: success
+                        rows = handleSetNickname(args);
                         break;
                     default:
                         rows = error("unknown_path");
@@ -241,7 +246,7 @@ public class LpaBridgeProvider extends ContentProvider
                     matchingId[0],
                     imei,
                     confirmationCode[0],
-                    new ProfileDownloadCallback() // TODO: move to a static or smth? unsure as this will only be used here anyway
+                    new ProfileDownloadCallback()
                     {
                         @Override
                         public void onStateUpdate(ProfileDownloadCallback.DownloadState state)
@@ -382,7 +387,7 @@ public class LpaBridgeProvider extends ContentProvider
         );
 
         var profile = profiles.stream()
-            .filter(profile -> profile.getIccid().equals(iccid))
+            .filter(p -> p.getIccid().equals(iccid))
             .findFirst()
             .orElse(null); // should never be null
 
@@ -414,6 +419,30 @@ public class LpaBridgeProvider extends ContentProvider
         );
 
         return success(success);
+    }
+
+    private MatrixCursor handleSetNickname(Map<String, String> args) throws Exception
+    {
+        String[] iccid = new String[1];
+        String[] nickname = new String[1];
+
+        if (!tryGetArgAsString(args, "iccid", iccid))
+            return missingArgError("iccid");
+
+        if (!tryGetArgAsString(args, "nickname", nickname))
+            return missingArgError("nickname");
+
+        withEuiccChannel
+        (
+            args,
+            (channel, _) ->
+            {
+                channel.getLpa().setNickname(iccid[0], nickname[0]);
+                return null;
+            }
+        );
+
+        return success();
     }
 
     // endregion
@@ -593,15 +622,17 @@ public class LpaBridgeProvider extends ContentProvider
         {
             "iccid",
             "isEnabled",
-            "displayName"
+            "name",
+            "nickname"
         };
 
         Object[][] rows = profiles.stream()
-            .map(profile -> new Object[]
+            .map(p -> new Object[]
             {
-                profile.getIccid(),
-                LPAUtilsKt.isEnabled(profile),
-                LPAUtilsKt.getDisplayName(profile)
+                p.getIccid(),
+                LPAUtilsKt.isEnabled(p),
+                p.getName(),
+                p.getNickName()
             })
             .toArray(Object[][]::new);
 

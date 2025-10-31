@@ -19,10 +19,13 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.net.HttpURLConnection;
 
+import kotlin.jvm.functions.Function0;
 import kotlin.jvm.functions.Function2;
 import kotlin.coroutines.Continuation;
 import kotlin.coroutines.EmptyCoroutineContext;
 import kotlinx.coroutines.BuildersKt;
+import kotlinx.coroutines.sync.Mutex;
+import kotlinx.coroutines.sync.MutexKt;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -46,6 +49,7 @@ import net.typeblog.lpac_jni.ProfileDownloadCallback;
 public class LpaBridgeProvider extends ContentProvider
 {
     private AppContainer appContainer;
+    private final Mutex mutex = MutexKt.Mutex(false);
 
     @Override
     public boolean onCreate()
@@ -55,6 +59,7 @@ public class LpaBridgeProvider extends ContentProvider
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder)
     {
         MatrixCursor rows;
@@ -70,65 +75,93 @@ public class LpaBridgeProvider extends ContentProvider
         {
             try
             {
-                switch (path)
-                {
-                    case "ping":
-                        // out: ping=pong
-                        rows = handlePing(args);
-                        break;
-                    case "cards":
-                        // out (many, can be empty): slotId, portId
-                        rows = handleGetCards(args);
-                        break;
-                    case "profiles":
-                        // in: slotId, portId
-                        // out (many, can be empty): iccid, isEnabled, name, nickname
-                        rows = handleGetProfiles(args);
-                        break;
-                    case "downloadProfile":
-                        // in: (slotId, portId) AND (activationCode OR address, matchingId?, confirmationCode?) AND imei?
-                        // out (single, can be empty): iccid, isEnabled, name, nickname
-                        rows = handleDownloadProfile(args);
-                        break;
-                    case "deleteProfile":
-                        // in: slotId, portId, iccid
-                        // out: success
-                        rows = handleDeleteProfile(args);
-                        break;
-                    case "enableProfile":
-                        // in: slotId, portId, iccid, refresh(true)
-                        // out: success
-                        rows = handleEnableProfile(args);
-                        break;
-                    case "disableProfile":
-                        // in: slotId, portId, iccid, refresh(true)
-                        // out: success
-                        rows = handleDisableProfile(args);
-                        break;
-                    case "activeProfile":
-                        // in: slotId, portId
-                        // out (single, can be empty): iccid, isEnabled, name, nickname
-                        rows = handleGetActiveProfile(args);
-                        break;
-                    case "disableActiveProfile":
-                        // in: slotId, portId, refresh(true)
-                        // out (single, can be empty): iccid, isEnabled, name, nickname
-                        rows = handleDisableActiveProfile(args);
-                        break;
-                    case "switchProfile":
-                        // in: slotId, portId, iccid, enable(true), refresh(true)
-                        // out: success
-                        rows = handleSwitchProfile(args);
-                        break;
-                    case "setNickname":
-                        // in: slotId, portId, iccid, nickname
-                        // out: success
-                        rows = handleSetNickname(args);
-                        break;
-                    default:
-                        rows = error("unknown_path");
-                        break;
-                }
+                rows = (MatrixCursor) BuildersKt.runBlocking
+                (
+                    EmptyCoroutineContext.INSTANCE,
+                    (_, continuation) -> MutexKt.withLock
+                    (
+                        mutex,
+                        null,
+                        new Function0<MatrixCursor>()
+                        {
+                            @Override
+                            public MatrixCursor invoke()
+                            {
+                                MatrixCursor rows;
+
+                                try
+                                {
+                                    switch (path)
+                                    {
+                                        case "ping":
+                                            // out: ping=pong
+                                            rows = handlePing(args);
+                                            break;
+                                        case "cards":
+                                            // out (many, can be empty): slotId, portId
+                                            rows = handleGetCards(args);
+                                            break;
+                                        case "profiles":
+                                            // in: slotId, portId
+                                            // out (many, can be empty): iccid, isEnabled, name, nickname
+                                            rows = handleGetProfiles(args);
+                                            break;
+                                        case "downloadProfile":
+                                            // in: (slotId, portId) AND (activationCode OR address, matchingId?, confirmationCode?) AND imei?
+                                            // out (single, can be empty): iccid, isEnabled, name, nickname
+                                            rows = handleDownloadProfile(args);
+                                            break;
+                                        case "deleteProfile":
+                                            // in: slotId, portId, iccid
+                                            // out: success
+                                            rows = handleDeleteProfile(args);
+                                            break;
+                                        case "enableProfile":
+                                            // in: slotId, portId, iccid, refresh(true)
+                                            // out: success
+                                            rows = handleEnableProfile(args);
+                                            break;
+                                        case "disableProfile":
+                                            // in: slotId, portId, iccid, refresh(true)
+                                            // out: success
+                                            rows = handleDisableProfile(args);
+                                            break;
+                                        case "activeProfile":
+                                            // in: slotId, portId
+                                            // out (single, can be empty): iccid, isEnabled, name, nickname
+                                            rows = handleGetActiveProfile(args);
+                                            break;
+                                        case "disableActiveProfile":
+                                            // in: slotId, portId, refresh(true)
+                                            // out (single, can be empty): iccid, isEnabled, name, nickname
+                                            rows = handleDisableActiveProfile(args);
+                                            break;
+                                        case "switchProfile":
+                                            // in: slotId, portId, iccid, enable(true), refresh(true)
+                                            // out: success
+                                            rows = handleSwitchProfile(args);
+                                            break;
+                                        case "setNickname":
+                                            // in: slotId, portId, iccid, nickname
+                                            // out: success
+                                            rows = handleSetNickname(args);
+                                            break;
+                                        default:
+                                            rows = error("unknown_path");
+                                            break;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    rows = error(ex.getMessage());
+                                }
+
+                                return rows;
+                            }
+                        },
+                        continuation
+                    )
+                );
             }
             catch (Exception ex)
             {

@@ -10,6 +10,8 @@ import java.util.LinkedHashMap;
 import java.util.Set;
 import java.util.LinkedHashSet;
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.stream.Stream;
 import java.util.stream.Collectors;
 import java.time.Instant;
@@ -169,7 +171,11 @@ public class LpaBridgeProvider extends ContentProvider
             }
         }
 
-        return projectColumns(rows, projection, new String[] { "error" });
+        rows = projectColumns(rows, projection, new String[] { "error" });
+
+        String rowsJson = rowsToJson(rows);
+
+        return row("rows", rowsJson);
     }
 
     // region Mandatory Overrides
@@ -719,62 +725,61 @@ public class LpaBridgeProvider extends ContentProvider
 
     private static MatrixCursor projectColumns(MatrixCursor rows, String[] projection, String[] preserve)
     {
-        String[] rowCols = rows.getColumnNames();
-        Set<String> available = new LinkedHashSet<>(Arrays.asList(rowCols));
-        var cols = new LinkedHashSet<String>();
+        var rowCols = new LinkedHashSet<String>(Arrays.asList(rows.getColumnNames()));
+        var outCols = new LinkedHashSet<String>();
 
         if (projection != null && projection.length > 0)
-            cols.addAll(Arrays.asList(projection));
+            outCols.addAll(Arrays.asList(projection));
         else
-            cols.addAll(available);
+            outCols.addAll(rowCols);
 
         if (preserve != null && preserve.length > 0)
         {
-            for (String col : preserve)
-            {
-                Stream.of(preserve)
-                    .filter(available::contains)
-                    .forEach(cols::add);
-            }
+            Stream.of(preserve)
+                .filter(rowCols::contains)
+                .forEach(outCols::add);
         }
 
-        if (cols.isEmpty())
+        if (outCols.isEmpty())
             return rows;
 
-        var outCols = cols.toArray(new String[0]);
-        var outRows = new MatrixCursor(outCols);
+        var outColsArray = outCols.toArray(new String[0]);
+        var outRows = new MatrixCursor(outColsArray);
+
+        rows.moveToPosition(-1);
 
         while (rows.moveToNext())
         {
-            var row = new Object[outCols.length];
+            var row = new Object[outColsArray.length];
 
-            for (int i = 0; i < outCols.length; i++)
+            for (int rowIndex = 0; rowIndex < outColsArray.length; rowIndex++)
             {
-                int index = rows.getColumnIndex(outCols[i]);
+                String colName = outColsArray[rowIndex];
+                int colIndex = rows.getColumnIndex(colName);
 
-                if (index < 0)
+                if (colIndex < 0)
                 {
-                    row[i] = null;
+                    row[rowIndex] = null;
                     continue;
                 }
 
-                switch (rows.getType(index))
+                switch (rows.getType(colIndex))
                 {
                     case Cursor.FIELD_TYPE_NULL:
-                        row[i] = null;
+                        row[rowIndex] = null;
                         break;
                     case Cursor.FIELD_TYPE_INTEGER:
-                        row[i] = rows.getLong(index);
+                        row[rowIndex] = rows.getLong(colIndex);
                         break;
                     case Cursor.FIELD_TYPE_FLOAT:
-                        row[i] = rows.getDouble(index);
+                        row[rowIndex] = rows.getDouble(colIndex);
                         break;
                     case Cursor.FIELD_TYPE_BLOB:
-                        row[i] = rows.getBlob(index);
+                        row[rowIndex] = rows.getBlob(colIndex);
                         break;
                     case Cursor.FIELD_TYPE_STRING:
                     default:
-                        row[i] = rows.getString(index);
+                        row[rowIndex] = rows.getString(colIndex);
                         break;
                 }
             }
@@ -783,6 +788,55 @@ public class LpaBridgeProvider extends ContentProvider
         }
 
         return outRows;
+    }
+
+    private static String rowsToJson(MatrixCursor rows)
+    {
+        String[] rowCols = rows.getColumnNames();
+        var outRows = new ArrayList<Map<String, Object>>();
+
+        rows.moveToPosition(-1);
+
+        while (rows.moveToNext())
+        {
+            var row = new LinkedHashMap<String, Object>();
+
+            for (String colName : rowCols)
+            {
+                int colIndex = rows.getColumnIndex(colName);
+
+                switch (rows.getType(colIndex))
+                {
+                    case Cursor.FIELD_TYPE_NULL:
+                        row.put(colName, null);
+                        break;
+                    case Cursor.FIELD_TYPE_INTEGER:
+                        row.put(colName, rows.getLong(colIndex));
+                        break;
+                    case Cursor.FIELD_TYPE_FLOAT:
+                        row.put(colName, rows.getDouble(colIndex));
+                        break;
+                    case Cursor.FIELD_TYPE_BLOB:
+                        byte[] blob = rows.getBlob(colIndex);
+                        String blobBase64 = Base64.getEncoder().encodeToString(blob);
+                        row.put(colName, blobBase64);
+                        break;
+                    case Cursor.FIELD_TYPE_STRING:
+                    default:
+                        row.put(colName, rows.getString(colIndex));
+                        break;
+                }
+            }
+
+            outRows.add(row);
+        }
+
+        String json = new GsonBuilder()
+            .serializeNulls()
+            .create()
+            .toJson(outRows);
+
+        return json;
     }
 
     // endregion

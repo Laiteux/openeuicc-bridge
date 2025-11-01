@@ -236,22 +236,14 @@ public class LpaBridgeProvider extends ContentProvider
 
     private MatrixCursor handleGetProfiles(Map<String, String> args) throws Exception
     {
-        List<LocalProfileInfo> profiles = withEuiccChannel
-        (
-            args,
-            (channel, _) -> channel.getLpa().getProfiles()
-        );
+        var profiles = getProfiles(args);
 
         return profiles(profiles);
     }
 
     private MatrixCursor handleGetActiveProfile(Map<String, String> args) throws Exception
     {
-        List<LocalProfileInfo> profiles = withEuiccChannel
-        (
-            args,
-            (channel, _) -> channel.getLpa().getProfiles()
-        );
+        var profiles = getProfiles(args);
 
         var enabledProfile = LPAUtilsKt.getEnabled(profiles);
 
@@ -284,11 +276,7 @@ public class LpaBridgeProvider extends ContentProvider
         else if (!tryGetArgAsString(args, "address", address))
             return missingArgError("activationCode_or_address");
 
-        List<LocalProfileInfo> profilesBefore = withEuiccChannel
-        (
-            args,
-            (channel, _) -> channel.getLpa().getProfiles()
-        );
+        var profilesBefore = getProfiles(args);
 
         var iccidsBefore = profilesBefore.stream()
             .map(LocalProfileInfo::getIccid)
@@ -316,7 +304,6 @@ public class LpaBridgeProvider extends ContentProvider
                                 {
                                     String[] callbackUrl = new String[1];
 
-                                    // TODO: test if it works
                                     if (tryGetArgAsString(args, "callbackUrl", callbackUrl))
                                     {
                                         var url = new URI(callbackUrl[0]).toURL();
@@ -348,11 +335,7 @@ public class LpaBridgeProvider extends ContentProvider
             }
         );
 
-        List<LocalProfileInfo> profilesAfter = withEuiccChannel
-        (
-            args,
-            (channel, _) -> channel.getLpa().getProfiles()
-        );
+        var profilesAfter = getProfiles(args);
 
         var downloadedProfile = profilesAfter.stream()
             .filter(p -> !iccidsBefore.contains(p.getIccid()))
@@ -361,6 +344,37 @@ public class LpaBridgeProvider extends ContentProvider
 
         if (downloadedProfile == null)
             return empty();
+
+        // boolean[] enable = new boolean[1];
+        // boolean[] refresh = new boolean[1];
+
+        // if (tryGetArgAsBoolean(args, "enable", enable) && enable[0])
+        // {
+        //     if (!tryGetArgAsBoolean(args, "refresh", refresh))
+        //         refresh[0] = true;
+
+        //     String iccid = downloadedProfile.getIccid();
+
+        //     try
+        //     {
+        //         withEuiccChannel
+        //         (
+        //             args,
+        //             (channel, _) -> channel.getLpa().enableProfile(iccid, refresh[0])
+        //         );
+
+        //         profilesAfter = getProfiles(args);
+
+        //         downloadedProfile = profilesAfter.stream()
+        //             .filter(p -> p.getIccid().equals(iccid))
+        //             .findFirst()
+        //             .orElseThrow(); // should never happen
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         // ignored
+        //     }
+        // }
 
         return profile(downloadedProfile);
     }
@@ -439,11 +453,7 @@ public class LpaBridgeProvider extends ContentProvider
         // if (iccid == null)
         //     return empty();
 
-        // List<LocalProfileInfo> profiles = withEuiccChannel
-        // (
-        //     args,
-        //     (channel, _) -> channel.getLpa().getProfiles()
-        // );
+        // var profiles = getProfiles(args);
 
         // var profile = profiles.stream()
         //     .filter(p -> iccid.equals(p.getIccid()))
@@ -532,24 +542,28 @@ public class LpaBridgeProvider extends ContentProvider
     }
 
     @SuppressWarnings("unchecked")
-    private <T> T withEuiccChannel(int slotId, int portId, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
-    {
-        var euiccChannelManager = appContainer.getEuiccChannelManager();
-
-        return (T) BuildersKt.runBlocking
-        (
-            EmptyCoroutineContext.INSTANCE,
-            (_, continuation) -> euiccChannelManager.withEuiccChannel(slotId, portId, operation, continuation)
-        );
-    }
-
     private <T> T withEuiccChannel(Map<String, String> args, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
     {
         var slotId = new int[1];
         var portId = new int[1];
         requireSlotAndPort(args, slotId, portId);
 
-        return withEuiccChannel(slotId[0], portId[0], operation);
+        var euiccChannelManager = appContainer.getEuiccChannelManager();
+
+        return (T) BuildersKt.runBlocking
+        (
+            EmptyCoroutineContext.INSTANCE,
+            (_, continuation) -> euiccChannelManager.withEuiccChannel(slotId[0], portId[0], operation, continuation)
+        );
+    }
+
+    private List<LocalProfileInfo> getProfiles(Map<String, String> args) throws Exception
+    {
+        return withEuiccChannel
+        (
+            args,
+            (channel, _) -> channel.getLpa().getProfiles()
+        );
     }
 
     // endregion

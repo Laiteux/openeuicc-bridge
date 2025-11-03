@@ -36,6 +36,7 @@ import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
 
+import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import im.angry.openeuicc.OpenEuiccApplication;
@@ -56,12 +57,21 @@ import net.typeblog.lpac_jni.ProfileDownloadCallback;
 public class LpaProvider extends ContentProvider
 {
     private AppContainer appContainer;
-    private final Mutex mutex = MutexKt.Mutex(false);
+    private Mutex mutex;
+    private Gson gson;
 
     @Override
     public boolean onCreate()
     {
         appContainer = ((OpenEuiccApplication) getContext().getApplicationContext()).getAppContainer();
+
+        mutex = MutexKt.Mutex(false);
+
+        gson = new GsonBuilder()
+            .serializeNulls()
+            .disableHtmlEscaping()
+            .create();
+
         return true;
     }
 
@@ -109,13 +119,13 @@ public class LpaProvider extends ContentProvider
                                         // out (many, can be empty): int slotId, int portId
                                         case "cards" -> handleGetCards(args);
                                         // in: int slotId, int portId
-                                        // out (many, can be empty): string iccid, bool isEnabled, string name, string nickname
+                                        // out (many, can be empty): string iccid, bool enabled, string name, string nickname
                                         case "profiles" -> handleGetProfiles(args);
                                         // in: int slotId, int portId
-                                        // out (single, can be empty): string iccid, bool isEnabled, string name, string nickname
+                                        // out (single, can be empty): string iccid, bool enabled, string name, string nickname
                                         case "activeProfile" -> handleGetActiveProfile(args);
                                         // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei
-                                        // out (single, can be empty): string iccid, bool isEnabled, string name, string nickname
+                                        // out (single, can be empty): string iccid, bool enabled, string name, string nickname
                                         case "downloadProfile" -> handleDownloadProfile(args);
                                         // in: int slotId, int portId, string iccid
                                         // out: bool success
@@ -561,7 +571,7 @@ public class LpaProvider extends ContentProvider
 
     // region LPA Helpers
 
-    private EuiccChannel findEuiccChannel(DefaultEuiccChannelManager euiccChannelManager, int slotId, int portId) throws Exception
+    private static EuiccChannel findEuiccChannel(DefaultEuiccChannelManager euiccChannelManager, int slotId, int portId) throws Exception
     {
         var findEuiccChannelByPortMethod = DefaultEuiccChannelManager.class.getDeclaredMethod("findEuiccChannelByPort", int.class, int.class, Continuation.class);
         findEuiccChannelByPortMethod.setAccessible(true);
@@ -767,7 +777,7 @@ public class LpaProvider extends ContentProvider
         return true;
     }
 
-    private void requireSlotAndPort(Map<String, String> args, int[] slotIdOut, int[] portIdOut) throws Exception
+    private static void requireSlotAndPort(Map<String, String> args, int[] slotIdOut, int[] portIdOut) throws Exception
     {
         final String slotIdArg = "slotId";
         final String portIdArg = "portId";
@@ -835,7 +845,7 @@ public class LpaProvider extends ContentProvider
         String[] columns =
         {
             "iccid",
-            "isEnabled",
+            "enabled",
             "name",
             "nickname"
         };
@@ -925,7 +935,7 @@ public class LpaProvider extends ContentProvider
         return outRows;
     }
 
-    private static String rowsToJson(MatrixCursor rows)
+    private String rowsToJson(MatrixCursor rows)
     {
         String[] rowCols = rows.getColumnNames();
         var outRows = new ArrayList<Map<String, Object>>();
@@ -963,15 +973,31 @@ public class LpaProvider extends ContentProvider
                 }
             }
 
+            var booleanCols = List.of
+            (
+                "success",
+                "enabled"
+            );
+
+            for (String colName : booleanCols)
+            {
+                Object colValue = row.get(colName);
+
+                if (colValue instanceof String)
+                {
+                    String colValueString = (String) colValue;
+
+                    if (colValueString.equalsIgnoreCase("false") || colValueString.equalsIgnoreCase("true"))
+                    {
+                        row.put(colName, Boolean.parseBoolean(colValueString));
+                    }
+                }
+            }
+
             outRows.add(row);
         }
 
-        String json = new GsonBuilder()
-            .serializeNulls()
-            .create()
-            .toJson(outRows);
-
-        return json;
+        return gson.toJson(outRows);
     }
 
     // endregion
@@ -980,10 +1006,7 @@ public class LpaProvider extends ContentProvider
 
     private void httpPostAsJson(URL url, Map<String, Object> data) throws Exception
     {
-        String json = new GsonBuilder()
-            .serializeNulls()
-            .create()
-            .toJson(data);
+        String json = gson.toJson(data);
 
         var httpConnection = (HttpURLConnection) url.openConnection();
 

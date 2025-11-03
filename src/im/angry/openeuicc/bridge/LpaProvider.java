@@ -53,7 +53,7 @@ import im.angry.openeuicc.util.PreferenceFlowWrapper;
 import net.typeblog.lpac_jni.LocalProfileInfo;
 import net.typeblog.lpac_jni.ProfileDownloadCallback;
 
-public class LpaBridgeProvider extends ContentProvider
+public class LpaProvider extends ContentProvider
 {
     private AppContainer appContainer;
     private final Mutex mutex = MutexKt.Mutex(false);

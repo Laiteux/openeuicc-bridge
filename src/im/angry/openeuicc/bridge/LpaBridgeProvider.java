@@ -26,6 +26,7 @@ import kotlin.jvm.functions.Function2;
 import kotlin.coroutines.Continuation;
 import kotlin.coroutines.EmptyCoroutineContext;
 import kotlinx.coroutines.BuildersKt;
+import kotlinx.coroutines.flow.FlowKt;
 import kotlinx.coroutines.sync.Mutex;
 import kotlinx.coroutines.sync.MutexKt;
 
@@ -39,12 +40,16 @@ import com.google.gson.GsonBuilder;
 
 import im.angry.openeuicc.OpenEuiccApplication;
 import im.angry.openeuicc.di.AppContainer;
+import im.angry.openeuicc.di.UnprivilegedAppContainer;
 import im.angry.openeuicc.core.EuiccChannel;
+import im.angry.openeuicc.core.EuiccChannelManager;
 import im.angry.openeuicc.core.DefaultEuiccChannelManager;
 import im.angry.openeuicc.util.UiccCardInfoCompat;
 import im.angry.openeuicc.util.UiccPortInfoCompat;
 import im.angry.openeuicc.util.LPAUtilsKt;
 import im.angry.openeuicc.util.ActivationCode;
+import im.angry.openeuicc.util.PreferenceUtilsKt;
+import im.angry.openeuicc.util.PreferenceFlowWrapper;
 import net.typeblog.lpac_jni.LocalProfileInfo;
 import net.typeblog.lpac_jni.ProfileDownloadCallback;
 
@@ -61,7 +66,6 @@ public class LpaBridgeProvider extends ContentProvider
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder)
     {
         MatrixCursor rows;
@@ -93,65 +97,46 @@ public class LpaBridgeProvider extends ContentProvider
 
                                 try
                                 {
-                                    switch (path)
+                                    rows = switch (path)
                                     {
-                                        case "ping":
-                                            // out: string ping=pong
-                                            rows = handlePing(args);
-                                            break;
-                                        case "cards":
-                                            // out (many, can be empty): int slotId, int portId
-                                            rows = handleGetCards(args);
-                                            break;
-                                        case "profiles":
-                                            // in: int slotId, int portId
-                                            // out (many, can be empty): string iccid, bool isEnabled, string name, string nickname
-                                            rows = handleGetProfiles(args);
-                                            break;
-                                        case "activeProfile":
-                                            // in: int slotId, int portId
-                                            // out (single, can be empty): string iccid, bool isEnabled, string name, string nickname
-                                            rows = handleGetActiveProfile(args);
-                                            break;
-                                        case "downloadProfile":
-                                            // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei
-                                            // out (single, can be empty): string iccid, bool isEnabled, string name, string nickname
-                                            rows = handleDownloadProfile(args);
-                                            break;
-                                        case "deleteProfile":
-                                            // in: int slotId, int portId, string iccid
-                                            // out: bool success
-                                            rows = handleDeleteProfile(args);
-                                            break;
-                                        case "enableProfile":
-                                            // in: int slotId, int portId, string iccid, bool refresh=true
-                                            // out: bool success
-                                            rows = handleEnableProfile(args);
-                                            break;
-                                        case "disableProfile":
-                                            // in: int slotId, int portId, string iccid, bool refresh=true
-                                            // out: bool success
-                                            rows = handleDisableProfile(args);
-                                            break;
-                                        case "disableActiveProfile":
-                                            // in: int slotId, int portId, bool refresh=true
-                                            // out: bool success
-                                            rows = handleDisableActiveProfile(args);
-                                            break;
-                                        case "switchProfile":
-                                            // in: int slotId, int portId, string iccid, bool enable=true, bool refresh=true
-                                            // out: bool success
-                                            rows = handleSwitchProfile(args);
-                                            break;
-                                        case "setNickname":
-                                            // in: int slotId, int portId, string iccid, string nickname
-                                            // out: bool success
-                                            rows = handleSetNickname(args);
-                                            break;
-                                        default:
-                                            rows = error("unknown_path");
-                                            break;
-                                    }
+                                        // out: string ping=pong
+                                        case "ping" -> handlePing(args);
+                                        // out (many): string name, bool enabled
+                                        case "preferences" -> handleGetPreferences(args);
+                                        // in: string name, bool enabled
+                                        // out: bool success
+                                        case "setPreference" -> handleSetPreference(args);
+                                        // out (many, can be empty): int slotId, int portId
+                                        case "cards" -> handleGetCards(args);
+                                        // in: int slotId, int portId
+                                        // out (many, can be empty): string iccid, bool isEnabled, string name, string nickname
+                                        case "profiles" -> handleGetProfiles(args);
+                                        // in: int slotId, int portId
+                                        // out (single, can be empty): string iccid, bool isEnabled, string name, string nickname
+                                        case "activeProfile" -> handleGetActiveProfile(args);
+                                        // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei
+                                        // out (single, can be empty): string iccid, bool isEnabled, string name, string nickname
+                                        case "downloadProfile" -> handleDownloadProfile(args);
+                                        // in: int slotId, int portId, string iccid
+                                        // out: bool success
+                                        case "deleteProfile" -> handleDeleteProfile(args);
+                                        // in: int slotId, int portId, string iccid, bool refresh=true
+                                        // out: bool success
+                                        case "enableProfile" -> handleEnableProfile(args);
+                                        // in: int slotId, int portId, string iccid, bool refresh=true
+                                        // out: bool success
+                                        case "disableProfile" -> handleDisableProfile(args);
+                                        // in: int slotId, int portId, bool refresh=true
+                                        // out: bool success
+                                        case "disableActiveProfile" -> handleDisableActiveProfile(args);
+                                        // in: int slotId, int portId, string iccid, bool enable=true, bool refresh=true
+                                        // out: bool success
+                                        case "switchProfile" -> handleSwitchProfile(args);
+                                        // in: int slotId, int portId, string iccid, string nickname
+                                        // out: bool success
+                                        case "setNickname" -> handleSetNickname(args);
+                                        default -> error("unknown_path");
+                                    };
                                 }
                                 catch (Exception ex)
                                 {
@@ -172,9 +157,9 @@ public class LpaBridgeProvider extends ContentProvider
         }
 
         rows = projectColumns(rows, projection, new String[] { "error" });
+        // return rows;
 
         String rowsJson = rowsToJson(rows);
-
         return row("rows", rowsJson);
     }
 
@@ -199,6 +184,52 @@ public class LpaBridgeProvider extends ContentProvider
     private MatrixCursor handlePing(Map<String, String> args)
     {
         return row("ping", "pong");
+    }
+
+    private MatrixCursor handleGetPreferences(Map<String, String> args) throws Exception
+    {
+        var preferences = List.of
+        (
+            "verboseLogging",
+            "safeguardActiveProfile",
+            "filterProfileList",
+            "ignoreTlsCertificate",
+            "notificationsDownload",
+            "notificationsDelete",
+            "notificationsSwitch"
+        );
+
+        if (!(appContainer instanceof UnprivilegedAppContainer))
+            preferences.add(1, "forceUseTelephonyManager");
+
+        var columns = new String[] { "name", "enabled" };
+        var values = new Object[preferences.size()][2];
+
+        for (int i = 0; i < preferences.size(); i++)
+        {
+            String name = preferences.get(i);
+
+            values[i][0] = name;
+            values[i][1] = getPreference(name);
+        }
+
+        return rows(columns, values);
+    }
+
+    private MatrixCursor handleSetPreference(Map<String, String> args) throws Exception
+    {
+        String[] name = new String[1];
+        boolean[] enabled = new boolean[1];
+
+        if (!tryGetArgAsString(args, "name", name))
+            return missingArgError("name");
+
+        if (!tryGetArgAsBoolean(args, "enabled", enabled))
+            return missingArgError("enabled");
+
+        setPreference(name[0], enabled[0]);
+
+        return success();
     }
 
     private MatrixCursor handleGetCards(Map<String, String> args) throws Exception
@@ -392,6 +423,8 @@ public class LpaBridgeProvider extends ContentProvider
         if (!tryGetArgAsString(args, "iccid", iccid))
             return missingArgError("iccid");
 
+        safeguardActiveProfile(args, iccid[0]);
+
         boolean success = withEuiccChannel
         (
             args,
@@ -432,6 +465,8 @@ public class LpaBridgeProvider extends ContentProvider
         if (!tryGetArgAsBoolean(args, "refresh", refresh))
             refresh[0] = true;
 
+        safeguardActiveProfile(args, iccid[0]);
+
         boolean success = withEuiccChannel
         (
             args,
@@ -447,6 +482,8 @@ public class LpaBridgeProvider extends ContentProvider
 
         if (!tryGetArgAsBoolean(args, "refresh", refresh))
             refresh[0] = true;
+
+        safeguardActiveProfile(args, null);
 
         String iccid = withEuiccChannel
         (
@@ -524,7 +561,6 @@ public class LpaBridgeProvider extends ContentProvider
 
     // region LPA Helpers
 
-    @SuppressWarnings("unchecked")
     private EuiccChannel findEuiccChannel(DefaultEuiccChannelManager euiccChannelManager, int slotId, int portId) throws Exception
     {
         var findEuiccChannelByPortMethod = DefaultEuiccChannelManager.class.getDeclaredMethod("findEuiccChannelByPort", int.class, int.class, Continuation.class);
@@ -565,11 +601,110 @@ public class LpaBridgeProvider extends ContentProvider
 
     private List<LocalProfileInfo> getProfiles(Map<String, String> args) throws Exception
     {
-        return withEuiccChannel
+        @SuppressWarnings("unchecked")
+        var profiles = (List<LocalProfileInfo>) withEuiccChannel
         (
             args,
             (channel, _) -> channel.getLpa().getProfiles()
         );
+
+        boolean filterProfileList = getPreference("filterProfileList");
+
+        if (filterProfileList)
+            return LPAUtilsKt.getOperational(profiles);
+
+        return profiles;
+    }
+
+    // endregion
+
+    // region Preference Helpers
+
+    private List<String> invertedPreferences = List.of
+    (
+        "safeguardActiveProfile",
+        "filterProfileList"
+    );
+
+    private PreferenceFlowWrapper<Boolean> getPreferenceFlow(String name) throws Exception
+    {
+        var preferenceRepository = PreferenceUtilsKt.getPreferenceRepository(getContext());
+
+        return switch (name)
+        {
+            case "verboseLogging" -> preferenceRepository.getVerboseLoggingFlow();
+            case "forceUseTelephonyManager" -> preferenceRepository.getForceUseTMAPIFlow();
+            case "safeguardActiveProfile" -> preferenceRepository.getDisableSafeguardFlow();
+            case "filterProfileList" -> preferenceRepository.getUnfilteredProfileListFlow();
+            case "ignoreTlsCertificate" -> preferenceRepository.getIgnoreTLSCertificateFlow();
+            case "notificationsDownload" -> preferenceRepository.getNotificationDownloadFlow();
+            case "notificationsDelete" -> preferenceRepository.getNotificationDeleteFlow();
+            case "notificationsSwitch" -> preferenceRepository.getNotificationSwitchFlow();
+            default -> throw new Exception("unknown_name");
+        };
+    }
+
+    private boolean getPreference(String name) throws Exception
+    {
+        var preferenceFlow = getPreferenceFlow(name);
+
+        boolean enabled = BuildersKt.runBlocking
+        (
+            EmptyCoroutineContext.INSTANCE,
+            (_, continuation) -> FlowKt.first(preferenceFlow, continuation)
+        );
+
+        if (invertedPreferences.contains(name))
+            enabled = !enabled;
+
+        return enabled;
+    }
+
+    private void setPreference(String name, boolean enabled) throws Exception
+    {
+        var preferenceFlow = getPreferenceFlow(name);
+
+        if (invertedPreferences.contains(name))
+            enabled = !enabled;
+
+        final boolean enabledFinal = enabled;
+
+        BuildersKt.runBlocking
+        (
+            EmptyCoroutineContext.INSTANCE,
+            (_, continuation) -> preferenceFlow.updatePreference(enabledFinal, continuation)
+        );
+    }
+
+    private void safeguardActiveProfile(Map<String, String> args, String iccid) throws Exception
+    {
+        int[] slotId = new int[1];
+        int[] portId = new int[1];
+        requireSlotAndPort(args, slotId, portId);
+
+        if (slotId[0] == EuiccChannelManager.USB_CHANNEL_ID)
+            return;
+
+        boolean safeguardEnabled = getPreference("safeguardActiveProfile");
+
+        if (!safeguardEnabled)
+            return;
+
+        boolean isTargetActive = iccid == null;
+
+        if (!isTargetActive)
+        {
+            var profiles = getProfiles(args);
+            var activeProfile = LPAUtilsKt.getEnabled(profiles);
+
+            if (activeProfile == null)
+                return;
+
+            isTargetActive = iccid.equals(activeProfile.getIccid());
+        }
+
+        if (isTargetActive)
+            throw new Exception("safeguard_active_profile");
     }
 
     // endregion

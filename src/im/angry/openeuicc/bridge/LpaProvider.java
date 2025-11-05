@@ -83,6 +83,8 @@ public class LpaProvider extends ContentProvider
         final String path = uri.getLastPathSegment();
         final Map<String, String> args = getArgsFromUri(uri);
 
+        boolean[] json = new boolean[1];
+
         if (path == null)
         {
             rows = error("no_path");
@@ -167,10 +169,11 @@ public class LpaProvider extends ContentProvider
         }
 
         rows = projectColumns(rows, projection, new String[] { "error" });
-        // return rows;
 
-        String rowsJson = rowsToJson(rows);
-        return row("rows", rowsJson);
+        if (tryGetArgAsBoolean(args, "json", json) && json[0])
+            rows = row("rows", rowsToJson(rows));
+
+        return rows;
     }
 
     // region Mandatory Overrides
@@ -746,14 +749,14 @@ public class LpaProvider extends ContentProvider
 
     private static boolean tryGetArgAsInt(Map<String, String> args, String key, int[] out)
     {
-        String[] arg = new String[1];
+        String arg = args.get(key);
 
-        if (!tryGetArgAsString(args, key, arg))
+        if (arg == null || arg.isEmpty())
             return false;
 
         try
         {
-            out[0] = Integer.parseInt(arg[0]);
+            out[0] = Integer.parseInt(arg);
             return true;
         }
         catch (NumberFormatException ex)
@@ -764,15 +767,16 @@ public class LpaProvider extends ContentProvider
 
     private static boolean tryGetArgAsBoolean(Map<String, String> args, String key, boolean[] out)
     {
-        String[] arg = new String[1];
+        String arg = args.get(key);
 
-        if (!tryGetArgAsString(args, key, arg))
+        if (arg == null)
             return false;
 
-        out[0] = arg[0].equals("1")
-            || arg[0].toLowerCase().startsWith("y")
-            || arg[0].equalsIgnoreCase("on")
-            || arg[0].equalsIgnoreCase("true");
+        out[0] = arg.isEmpty()
+            || arg.equals("1")
+            || arg.toLowerCase().startsWith("y")
+            || arg.equalsIgnoreCase("on")
+            || arg.equalsIgnoreCase("true");
 
         return true;
     }

@@ -80,14 +80,14 @@ public class LpaProvider extends ContentProvider
     {
         MatrixCursor rows;
 
-        final String path = uri.getLastPathSegment();
+        final String endpoint = uri.getLastPathSegment();
         final Map<String, String> args = getArgsFromUri(uri);
 
         boolean[] json = new boolean[1];
 
-        if (path == null)
+        if (endpoint == null)
         {
-            rows = error("no_path");
+            rows = error("no_endpoint");
         }
         else
         {
@@ -109,7 +109,7 @@ public class LpaProvider extends ContentProvider
 
                                 try
                                 {
-                                    rows = switch (path)
+                                    rows = switch (endpoint)
                                     {
                                         // out: string ping=pong
                                         case "ping" -> handlePing(args);
@@ -147,7 +147,7 @@ public class LpaProvider extends ContentProvider
                                         // in: int slotId, int portId, string iccid, string nickname
                                         // out: bool success
                                         case "setNickname" -> handleSetNickname(args);
-                                        default -> error("unknown_path");
+                                        default -> error("unknown_endpoint");
                                     };
                                 }
                                 catch (Exception ex)

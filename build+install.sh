@@ -3,12 +3,13 @@ set -euo pipefail
 
 # ============================================================================
 APP_PKG="uk.simlink.lpa"
-JAVA_PKG="im.angry.openeuicc.bridge"
 APKTOOL_TREE="eazyeuicc"
+ORIG_APK="eazyeuicc.apk"
+DEP_JAR="eazyeuicc.jar"
+JAVA_PKG="im.angry.openeuicc.bridge"
 SRC_DIR="src"
 OUT_DIR="out"
 DEPS_DIR="deps"
-ORIG_APK="eazyeuicc.apk"
 BAKSMALI_JAR="tools/baksmali.jar"
 # ============================================================================
 
@@ -53,7 +54,7 @@ rebuild_cp_jar() {
   local apk="$1"
   local dexdir="$DEPS_DIR/_dex"
   local mergedir="$DEPS_DIR/_merge"
-  local jar_out="$DEPS_DIR/eazyeuicc.jar"
+  local jar_out="$DEPS_DIR/$DEP_JAR"
   rm -rf "$dexdir" "$mergedir"
   mkdir -p "$dexdir" "$mergedir"
 
@@ -71,12 +72,12 @@ rebuild_cp_jar() {
   done
   [[ $any -eq 1 ]] || { echo "ERROR: no classes*.dex found in $apk"; exit 1; }
 
-  (cd "$mergedir" && jar cf "../eazyeuicc.jar" .)
+  (cd "$mergedir" && jar cf "../$DEP_JAR" .)
   rm -rf "$dexdir" "$mergedir"
 }
 
 # (Re)build deps jar if missing or incomplete
-APP_JAR="$DEPS_DIR/eazyeuicc.jar"
+APP_JAR="$DEPS_DIR/$DEP_JAR"
 need_rebuild=0
 if [[ ! -f "$APP_JAR" ]]; then
   need_rebuild=1

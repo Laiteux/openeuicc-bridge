@@ -1,6 +1,5 @@
 package im.angry.openeuicc.bridge;
 
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -126,7 +125,7 @@ public class LpaProvider extends ContentProvider
                                         // in: int slotId, int portId
                                         // out (single, can be empty): string iccid, bool enabled, string name, string nickname
                                         case "activeProfile" -> handleGetActiveProfile(args);
-                                        // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei
+                                        // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei, string? callbackUrl
                                         // out (single, can be empty): string iccid, bool enabled, string name, string nickname
                                         case "downloadProfile" -> handleDownloadProfile(args);
                                         // in: int slotId, int portId, string iccid
@@ -218,12 +217,12 @@ public class LpaProvider extends ContentProvider
         var columns = new String[] { "name", "enabled" };
         var values = new Object[preferences.size()][2];
 
-        for (int i = 0; i < preferences.size(); i++)
+        for (int valIndex = 0; valIndex < preferences.size(); valIndex++)
         {
-            String name = preferences.get(i);
+            String name = preferences.get(valIndex);
 
-            values[i][0] = name;
-            values[i][1] = getPreference(name);
+            values[valIndex][0] = name;
+            values[valIndex][1] = getPreference(name);
         }
 
         return rows(columns, values);
@@ -253,7 +252,7 @@ public class LpaProvider extends ContentProvider
         getUiccCardsMethod.setAccessible(true);
 
         @SuppressWarnings("unchecked")
-        var cards = (Collection<UiccCardInfoCompat>) getUiccCardsMethod.invoke(euiccChannelManager);
+        var cards = (List<UiccCardInfoCompat>) getUiccCardsMethod.invoke(euiccChannelManager);
 
         var rows = new MatrixCursor(new String[]
         {
@@ -653,7 +652,7 @@ public class LpaProvider extends ContentProvider
             case "notificationsDownload" -> preferenceRepository.getNotificationDownloadFlow();
             case "notificationsDelete" -> preferenceRepository.getNotificationDeleteFlow();
             case "notificationsSwitch" -> preferenceRepository.getNotificationSwitchFlow();
-            default -> throw new Exception("unknown_name");
+            default -> throw new Exception("unknown_preference_name");
         };
     }
 
@@ -991,7 +990,7 @@ public class LpaProvider extends ContentProvider
                 {
                     String colValueString = (String) colValue;
 
-                    if (colValueString.equalsIgnoreCase("false") || colValueString.equalsIgnoreCase("true"))
+                    if (colValueString.equalsIgnoreCase(Boolean.toString(false)) || colValueString.equalsIgnoreCase(Boolean.toString(true)))
                     {
                         row.put(colName, Boolean.parseBoolean(colValueString));
                     }

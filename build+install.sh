@@ -158,22 +158,25 @@ apktool b "$APKTOOL_TREE" -o "$OUT_DIR/build-unsigned.apk"
 "$BT/zipalign" -p -f 4 "$OUT_DIR/build-unsigned.apk" "$OUT_DIR/build-aligned.apk"
 
 # Ensure keystore
-if [ ! -f "$HOME/.android/debug.keystore" ]; then
-  mkdir -p "$HOME/.android"
-  keytool -genkeypair \
-    -keystore "$HOME/.android/debug.keystore" \
-    -storepass android -keypass android \
-    -alias androiddebugkey \
-    -keyalg RSA -keysize 2048 -validity 10000 \
-    -dname "CN=Android Debug,O=Android,C=US"
-fi
+# if [ ! -f "$HOME/.android/debug.keystore" ]; then
+#   mkdir -p "$HOME/.android"
+#   keytool -genkeypair \
+#     -keystore "$HOME/.android/debug.keystore" \
+#     -storepass android -keypass android \
+#     -alias androiddebugkey \
+#     -keyalg RSA -keysize 2048 -validity 10000 \
+#     -dname "CN=Android Debug,O=Android,C=US"
+# fi
 
-# Sign
+# https://github.com/9esim/9eSIMCommunityKey
+COMMUNITY_KEY_JKS="./9eSIMCommunityKey.jks"
+COMMUNITY_KEY_PASS="147258369"
+
+# Sign APK using 9eSIM Community Key
 java --enable-native-access=ALL-UNNAMED \
   -jar "$BT/lib/apksigner.jar" sign \
-  --ks "$HOME/.android/debug.keystore" \
-  --ks-key-alias androiddebugkey \
-  --ks-pass pass:android --key-pass pass:android \
+  --ks "$COMMUNITY_KEY_JKS" \
+  --ks-pass pass:"$COMMUNITY_KEY_PASS" \
   --out "$OUT_DIR/build-signed.apk" \
   "$OUT_DIR/build-aligned.apk"
 

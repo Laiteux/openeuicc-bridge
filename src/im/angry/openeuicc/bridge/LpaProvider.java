@@ -849,7 +849,6 @@ public class LpaProvider extends ContentProvider
         {
             "iccid",
             "enabled",
-            "name",
             "nickname"
         };
 
@@ -858,7 +857,6 @@ public class LpaProvider extends ContentProvider
             {
                 p.getIccid(),
                 LPAUtilsKt.isEnabled(p),
-                p.getName(),
                 p.getNickName()
             })
             .toArray(Object[][]::new);

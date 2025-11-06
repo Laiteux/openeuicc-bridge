@@ -140,9 +140,6 @@ public class LpaProvider extends ContentProvider
                                         // in: int slotId, int portId, bool refresh=true
                                         // out: bool success
                                         case "disableActiveProfile" -> handleDisableActiveProfile(args);
-                                        // in: int slotId, int portId, string iccid, bool enable=true, bool refresh=true
-                                        // out: bool success
-                                        case "switchProfile" -> handleSwitchProfile(args);
                                         // in: int slotId, int portId, string iccid, string nickname
                                         // out: bool success
                                         case "setProfileNickname" -> handleSetProfileNickname(args);
@@ -519,30 +516,6 @@ public class LpaProvider extends ContentProvider
         //     return empty();
 
         // return profile(profile);
-    }
-
-    private MatrixCursor handleSwitchProfile(Map<String, String> args) throws Exception
-    {
-        String[] iccid = new String[1];
-        boolean[] enable = new boolean[1];
-        boolean[] refresh = new boolean[1];
-
-        if (!tryGetArgAsString(args, "iccid", iccid))
-            return missingArgError("iccid");
-
-        if (!tryGetArgAsBoolean(args, "enable", enable))
-            enable[0] = true;
-
-        if (!tryGetArgAsBoolean(args, "refresh", refresh))
-            refresh[0] = true;
-
-        boolean success = withEuiccChannel
-        (
-            args,
-            (channel, _) -> LPAUtilsKt.switchProfile(channel.getLpa(), iccid[0], enable[0], refresh[0])
-        );
-
-        return success(success);
     }
 
     private MatrixCursor handleSetProfileNickname(Map<String, String> args) throws Exception

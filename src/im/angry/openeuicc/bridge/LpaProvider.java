@@ -145,7 +145,7 @@ public class LpaProvider extends ContentProvider
                                         case "switchProfile" -> handleSwitchProfile(args);
                                         // in: int slotId, int portId, string iccid, string nickname
                                         // out: bool success
-                                        case "setNickname" -> handleSetNickname(args);
+                                        case "setProfileNickname" -> handleSetProfileNickname(args);
                                         default -> error("unknown_endpoint");
                                     };
                                 }
@@ -545,7 +545,7 @@ public class LpaProvider extends ContentProvider
         return success(success);
     }
 
-    private MatrixCursor handleSetNickname(Map<String, String> args) throws Exception
+    private MatrixCursor handleSetProfileNickname(Map<String, String> args) throws Exception
     {
         String[] iccid = new String[1];
         String[] nickname = new String[1];

@@ -251,6 +251,9 @@ public class LpaProvider extends ContentProvider
 
         for (UiccCardInfoCompat card : cards)
         {
+            if (!card.isRemovable())
+                continue;
+
             for (UiccPortInfoCompat port : card.getPorts())
             {
                 int slotId = card.getPhysicalSlotIndex();

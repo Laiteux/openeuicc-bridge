@@ -830,7 +830,7 @@ public class LpaProvider extends ContentProvider
             {
                 p.getIccid(),
                 LPAUtilsKt.isEnabled(p),
-                p.getNickName()
+                p.getNickName().isEmpty() ? null : p.getNickName()
             })
             .toArray(Object[][]::new);
 

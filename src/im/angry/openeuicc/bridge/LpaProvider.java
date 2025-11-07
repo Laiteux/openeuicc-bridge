@@ -377,7 +377,7 @@ public class LpaProvider extends ContentProvider
         if (downloadedProfile == null)
             return empty();
 
-        handleNotification(args, downloadedProfile.getIccid(), LocalProfileNotification.Operation.Install);
+        processNotification(args, downloadedProfile.getIccid(), LocalProfileNotification.Operation.Install);
 
         return profile(downloadedProfile);
     }
@@ -398,7 +398,7 @@ public class LpaProvider extends ContentProvider
         );
 
         if (success)
-            handleNotification(args, iccid[0], LocalProfileNotification.Operation.Delete);
+            processNotification(args, iccid[0], LocalProfileNotification.Operation.Delete);
 
         return success(success);
     }
@@ -426,9 +426,9 @@ public class LpaProvider extends ContentProvider
         if (success)
         {
             if (previousActiveProfile != null)
-                handleNotification(args, previousActiveProfile.getIccid(), LocalProfileNotification.Operation.Disable);
+                processNotification(args, previousActiveProfile.getIccid(), LocalProfileNotification.Operation.Disable);
 
-            handleNotification(args, iccid[0], LocalProfileNotification.Operation.Enable);
+            processNotification(args, iccid[0], LocalProfileNotification.Operation.Enable);
         }
 
         return success(success);
@@ -517,7 +517,7 @@ public class LpaProvider extends ContentProvider
         return profiles;
     }
 
-    private void handleNotification(Map<String, String> args, String iccid, LocalProfileNotification.Operation operation)
+    private void processNotification(Map<String, String> args, String iccid, LocalProfileNotification.Operation operation)
     {
         try
         {

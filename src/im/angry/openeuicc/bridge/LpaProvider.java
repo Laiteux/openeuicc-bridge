@@ -895,7 +895,8 @@ public class LpaProvider extends ContentProvider
         {
             "iccid",
             "enabled",
-            "nickname"
+            "nickname",
+            "providerName"
         };
 
         Object[][] rows = profiles.stream()
@@ -903,7 +904,8 @@ public class LpaProvider extends ContentProvider
             {
                 p.getIccid(),
                 LPAUtilsKt.isEnabled(p),
-                p.getNickName().isEmpty() ? null : p.getNickName()
+                p.getNickName().isEmpty() ? null : p.getNickName(),
+                p.getProviderName()
             })
             .toArray(Object[][]::new);
 

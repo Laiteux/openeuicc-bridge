@@ -246,7 +246,8 @@ public class LpaProvider extends ContentProvider
         var rows = new MatrixCursor(new String[]
         {
             "slotId",
-            "portId"
+            "portId",
+            "eid"
         });
 
         for (UiccCardInfoCompat card : cards)
@@ -263,10 +264,18 @@ public class LpaProvider extends ContentProvider
 
                 if (euiccChannel != null)
                 {
+                    String eid = withEuiccChannel
+                    (
+                        slotId,
+                        portId,
+                        (channel, _) -> channel.getLpa().getEID()
+                    );
+
                     rows.addRow(new Object[]
                     {
                         slotId,
-                        portId
+                        portId,
+                        eid
                     });
                 }
             }
@@ -485,19 +494,24 @@ public class LpaProvider extends ContentProvider
     }
 
     @SuppressWarnings("unchecked")
+    private <T> T withEuiccChannel(int slotId, int portId, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
+    {
+        var euiccChannelManager = appContainer.getEuiccChannelManager();
+
+        return (T) BuildersKt.runBlocking
+        (
+            EmptyCoroutineContext.INSTANCE,
+            (_, continuation) -> euiccChannelManager.withEuiccChannel(slotId, portId, operation, continuation)
+        );
+    }
+
     private <T> T withEuiccChannel(Map<String, String> args, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
     {
         var slotId = new int[1];
         var portId = new int[1];
         requireSlotAndPort(args, slotId, portId);
 
-        var euiccChannelManager = appContainer.getEuiccChannelManager();
-
-        return (T) BuildersKt.runBlocking
-        (
-            EmptyCoroutineContext.INSTANCE,
-            (_, continuation) -> euiccChannelManager.withEuiccChannel(slotId[0], portId[0], operation, continuation)
-        );
+        return withEuiccChannel(slotId[0], portId[0], operation);
     }
 
     private List<LocalProfileInfo> getProfiles(Map<String, String> args) throws Exception

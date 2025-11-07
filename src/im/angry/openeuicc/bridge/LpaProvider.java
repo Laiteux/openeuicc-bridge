@@ -51,6 +51,7 @@ import im.angry.openeuicc.util.ActivationCode;
 import im.angry.openeuicc.util.PreferenceUtilsKt;
 import im.angry.openeuicc.util.PreferenceFlowWrapper;
 import net.typeblog.lpac_jni.LocalProfileInfo;
+import net.typeblog.lpac_jni.LocalProfileNotification;
 import net.typeblog.lpac_jni.ProfileDownloadCallback;
 
 public class LpaProvider extends ContentProvider
@@ -425,6 +426,8 @@ public class LpaProvider extends ContentProvider
         //     }
         // }
 
+        handleNotification(args, downloadedProfile.getIccid(), LocalProfileNotification.Operation.Install);
+
         return profile(downloadedProfile);
     }
 
@@ -443,6 +446,9 @@ public class LpaProvider extends ContentProvider
             (channel, _) -> channel.getLpa().deleteProfile(iccid[0])
         );
 
+        if (success)
+            handleNotification(args, iccid[0], LocalProfileNotification.Operation.Delete);
+
         return success(success);
     }
 
@@ -457,11 +463,22 @@ public class LpaProvider extends ContentProvider
         if (!tryGetArgAsBoolean(args, "refresh", refresh))
             refresh[0] = true;
 
+        var profiles = getProfiles(args);
+        var previousActiveProfile = LPAUtilsKt.getEnabled(profiles);
+
         boolean success = withEuiccChannel
         (
             args,
             (channel, _) -> channel.getLpa().enableProfile(iccid[0], refresh[0])
         );
+
+        if (success)
+        {
+            if (previousActiveProfile != null)
+                handleNotification(args, previousActiveProfile.getIccid(), LocalProfileNotification.Operation.Disable);
+
+            handleNotification(args, iccid[0], LocalProfileNotification.Operation.Enable);
+        }
 
         return success(success);
     }
@@ -485,6 +502,9 @@ public class LpaProvider extends ContentProvider
             (channel, _) -> channel.getLpa().disableProfile(iccid[0], refresh[0])
         );
 
+        if (success)
+            handleNotification(args, iccid[0], LocalProfileNotification.Operation.Disable);
+
         return success(success);
     }
 
@@ -502,6 +522,9 @@ public class LpaProvider extends ContentProvider
             args,
             (channel, _) -> LPAUtilsKt.disableActiveProfileKeepIccId(channel.getLpa(), refresh[0])
         );
+
+        if (iccid != null)
+            handleNotification(args, iccid, LocalProfileNotification.Operation.Disable);
 
         return success();
 
@@ -602,6 +625,53 @@ public class LpaProvider extends ContentProvider
             return LPAUtilsKt.getOperational(profiles);
 
         return profiles;
+    }
+
+    private void handleNotification(Map<String, String> args, String iccid, LocalProfileNotification.Operation operation)
+    {
+        try
+        {
+            var preferenceName = switch (operation)
+            {
+                case Install -> "notificationsDownload";
+                case Delete -> "notificationsDelete";
+                case Enable, Disable -> "notificationsSwitch";
+            };
+
+            if (!getPreference(preferenceName))
+                return;
+
+            @SuppressWarnings("unchecked")
+            var notifications = (List<LocalProfileNotification>) withEuiccChannel
+            (
+                args,
+                (channel, _) -> channel.getLpa().getNotifications()
+            );
+
+            var notification = notifications.stream()
+                .filter(n -> n.getIccid().equals(iccid) && n.getProfileManagementOperation() == operation)
+                .sorted((n1, n2) -> Long.compare(n2.getSeqNumber(), n1.getSeqNumber())) // descending
+                .findFirst()
+                .orElse(null);
+
+            if (notification == null)
+                return;
+
+            withEuiccChannel
+            (
+                args,
+                (channel, _) ->
+                {
+                    channel.getLpa().handleNotification(notification);
+                    channel.getLpa().deleteNotification(notification.getSeqNumber());
+                    return null;
+                }
+            );
+        }
+        catch (Exception ex)
+        {
+            // ignored
+        }
     }
 
     // endregion

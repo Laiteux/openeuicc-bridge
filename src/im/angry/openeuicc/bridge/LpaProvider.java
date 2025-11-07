@@ -121,10 +121,10 @@ public class LpaProvider extends ContentProvider
                                         // out (many, can be empty): int slotId, int portId
                                         case "cards" -> handleGetCards(args);
                                         // in: int slotId, int portId
-                                        // out (many, can be empty): string iccid, bool enabled, string? nickname, string provider
+                                        // out (many, can be empty): string iccid, bool enabled, string provider, string? nickname
                                         case "profiles" -> handleGetProfiles(args);
                                         // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei, string? callbackUrl
-                                        // out (single, can be empty): string iccid, bool enabled, string? nickname, string provider
+                                        // out (single, can be empty): string iccid, bool enabled, string provider, string? nickname
                                         case "downloadProfile" -> handleDownloadProfile(args);
                                         // in: int slotId, int portId, string iccid
                                         // out: bool success
@@ -132,7 +132,7 @@ public class LpaProvider extends ContentProvider
                                         // in: int slotId, int portId, string iccid, bool refresh=true
                                         // out: bool success
                                         case "enableProfile" -> handleEnableProfile(args);
-                                        // in: int slotId, int portId, string iccid, string? nickname, string provider
+                                        // in: int slotId, int portId, string iccid, string? nickname
                                         // out: bool success
                                         case "setProfileNickname" -> handleSetProfileNickname(args);
                                         default -> error("unknown_endpoint");
@@ -287,7 +287,7 @@ public class LpaProvider extends ContentProvider
         String[] address = new String[1];
         String[] matchingId = { args.get("matchingId") };
         String[] confirmationCode = { args.get("confirmationCode") };
-        String imei = args.get("imei");
+        String[] imei = { args.get("imei") };
 
         String[] activationCodeArg = new String[1];
 
@@ -320,7 +320,7 @@ public class LpaProvider extends ContentProvider
                 (
                     address[0],
                     matchingId[0],
-                    imei,
+                    imei[0],
                     confirmationCode[0],
                     new ProfileDownloadCallback()
                     {
@@ -348,7 +348,7 @@ public class LpaProvider extends ContentProvider
                                             put("address", address[0]);
                                             put("matchingId", matchingId[0]);
                                             put("confirmationCode", confirmationCode[0]);
-                                            put("imei", imei);
+                                            put("imei", imei[0]);
                                         }};
 
                                         httpPostAsJson(url, data);
@@ -437,13 +437,13 @@ public class LpaProvider extends ContentProvider
     private MatrixCursor handleSetProfileNickname(Map<String, String> args) throws Exception
     {
         String[] iccid = new String[1];
-        String[] nickname = new String[1];
+        String[] nickname = { args.get("nickname") };
 
         if (!tryGetArgAsString(args, "iccid", iccid))
             return missingArgError("iccid");
 
-        if (!tryGetArgAsString(args, "nickname", nickname))
-            return missingArgError("nickname");
+        if (nickname[0] == null)
+            nickname[0] = "";
 
         withEuiccChannel
         (
@@ -785,17 +785,25 @@ public class LpaProvider extends ContentProvider
         {
             "iccid",
             "enabled",
-            "nickname",
-            "providerName"
+            "provider",
+            "nickname"
         };
 
         Object[][] rows = profiles.stream()
-            .map(p -> new Object[]
+            .map(p ->
             {
-                p.getIccid(),
-                LPAUtilsKt.isEnabled(p),
-                p.getNickName().isEmpty() ? null : p.getNickName(),
-                p.getProviderName()
+                var nickname = p.getNickName();
+
+                if (nickname.isEmpty())
+                    nickname = null;
+
+                return new Object[]
+                {
+                    p.getIccid(),
+                    LPAUtilsKt.isEnabled(p),
+                    p.getProviderName(),
+                    nickname
+                };
             })
             .toArray(Object[][]::new);
 

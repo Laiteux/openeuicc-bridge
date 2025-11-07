@@ -197,7 +197,7 @@ public class LpaProvider extends ContentProvider
             "ignoreTlsCertificate",
             "notificationsDownload",
             "notificationsDelete",
-            "notificationsSwitch"
+            "notificationsEnableDisable"
         );
 
         if (!(appContainer instanceof UnprivilegedAppContainer))
@@ -525,7 +525,7 @@ public class LpaProvider extends ContentProvider
             {
                 case Install -> "notificationsDownload";
                 case Delete -> "notificationsDelete";
-                case Enable, Disable -> "notificationsSwitch";
+                case Enable, Disable -> "notificationsEnableDisable";
             };
 
             if (!getPreference(preferenceName))
@@ -580,14 +580,14 @@ public class LpaProvider extends ContentProvider
 
         return switch (name)
         {
-            case "verboseLogging" -> preferenceRepository.getVerboseLoggingFlow(); // non-implemented
-            case "forceUseTelephonyManager" -> preferenceRepository.getForceUseTMAPIFlow(); // non-implemented for UnprivilegedAppContainer
+            case "verboseLogging" -> preferenceRepository.getVerboseLoggingFlow(); // not used here
+            case "forceUseTelephonyManager" -> preferenceRepository.getForceUseTMAPIFlow(); // only used by PrivilegedAppContainer
             case "safeguardActiveProfile" -> preferenceRepository.getDisableSafeguardFlow(); // implemented
             case "filterProfileList" -> preferenceRepository.getUnfilteredProfileListFlow(); // implemented
-            case "ignoreTlsCertificate" -> preferenceRepository.getIgnoreTLSCertificateFlow(); // non-implemented
-            case "notificationsDownload" -> preferenceRepository.getNotificationDownloadFlow(); // implemented for Download and Enable Operations
-            case "notificationsDelete" -> preferenceRepository.getNotificationDeleteFlow(); // implemented for Disable and Delete Operations
-            case "notificationsSwitch" -> preferenceRepository.getNotificationSwitchFlow(); // non-implemented
+            case "ignoreTlsCertificate" -> preferenceRepository.getIgnoreTLSCertificateFlow(); // not used here
+            case "notificationsDownload" -> preferenceRepository.getNotificationDownloadFlow(); // implemented
+            case "notificationsDelete" -> preferenceRepository.getNotificationDeleteFlow(); // implemented
+            case "notificationsEnableDisable" -> preferenceRepository.getNotificationSwitchFlow(); // implemented
             default -> throw new Exception("unknown_preference_name");
         };
     }

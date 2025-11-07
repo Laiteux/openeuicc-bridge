@@ -348,6 +348,9 @@ public class LpaProvider extends ContentProvider
                             {
                                 try
                                 {
+                                    if (state.getProgress() == 0)
+                                        return;
+
                                     String[] callbackUrl = new String[1];
 
                                     if (tryGetArgAsString(args, "callbackUrl", callbackUrl))

@@ -123,9 +123,6 @@ public class LpaProvider extends ContentProvider
                                         // in: int slotId, int portId
                                         // out (many, can be empty): string iccid, bool enabled, string? nickname, string provider
                                         case "profiles" -> handleGetProfiles(args);
-                                        // in: int slotId, int portId
-                                        // out (single, can be empty): string iccid, bool enabled, string? nickname, string provider
-                                        case "activeProfile" -> handleGetActiveProfile(args);
                                         // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei, string? callbackUrl
                                         // out (single, can be empty): string iccid, bool enabled, string? nickname, string provider
                                         case "downloadProfile" -> handleDownloadProfile(args);
@@ -135,12 +132,6 @@ public class LpaProvider extends ContentProvider
                                         // in: int slotId, int portId, string iccid, bool refresh=true
                                         // out: bool success
                                         case "enableProfile" -> handleEnableProfile(args);
-                                        // in: int slotId, int portId, string iccid, bool refresh=true
-                                        // out: bool success
-                                        case "disableProfile" -> handleDisableProfile(args);
-                                        // in: int slotId, int portId, bool refresh=true
-                                        // out: bool success
-                                        case "disableActiveProfile" -> handleDisableActiveProfile(args);
                                         // in: int slotId, int portId, string iccid, string? nickname, string provider
                                         // out: bool success
                                         case "setProfileNickname" -> handleSetProfileNickname(args);
@@ -288,18 +279,6 @@ public class LpaProvider extends ContentProvider
         return profiles(profiles);
     }
 
-    private MatrixCursor handleGetActiveProfile(Map<String, String> args) throws Exception
-    {
-        var profiles = getProfiles(args);
-
-        var enabledProfile = LPAUtilsKt.getEnabled(profiles);
-
-        if (enabledProfile == null)
-            return empty();
-
-        return profile(enabledProfile);
-    }
-
     private MatrixCursor handleDownloadProfile(Map<String, String> args) throws Exception
     {
         String[] address = new String[1];
@@ -395,37 +374,6 @@ public class LpaProvider extends ContentProvider
         if (downloadedProfile == null)
             return empty();
 
-        // boolean[] enable = new boolean[1];
-        // boolean[] refresh = new boolean[1];
-
-        // if (tryGetArgAsBoolean(args, "enable", enable) && enable[0])
-        // {
-        //     if (!tryGetArgAsBoolean(args, "refresh", refresh))
-        //         refresh[0] = true;
-
-        //     String iccid = downloadedProfile.getIccid();
-
-        //     try
-        //     {
-        //         withEuiccChannel
-        //         (
-        //             args,
-        //             (channel, _) -> channel.getLpa().enableProfile(iccid, refresh[0])
-        //         );
-
-        //         profilesAfter = getProfiles(args);
-
-        //         downloadedProfile = profilesAfter.stream()
-        //             .filter(p -> p.getIccid().equals(iccid))
-        //             .findFirst()
-        //             .orElseThrow(); // should never happen
-        //     }
-        //     catch (Exception ex)
-        //     {
-        //         // ignored
-        //     }
-        // }
-
         handleNotification(args, downloadedProfile.getIccid(), LocalProfileNotification.Operation.Install);
 
         return profile(downloadedProfile);
@@ -481,67 +429,6 @@ public class LpaProvider extends ContentProvider
         }
 
         return success(success);
-    }
-
-    private MatrixCursor handleDisableProfile(Map<String, String> args) throws Exception
-    {
-        String[] iccid = new String[1];
-        boolean[] refresh = new boolean[1];
-
-        if (!tryGetArgAsString(args, "iccid", iccid))
-            return missingArgError("iccid");
-
-        if (!tryGetArgAsBoolean(args, "refresh", refresh))
-            refresh[0] = true;
-
-        safeguardActiveProfile(args, iccid[0]);
-
-        boolean success = withEuiccChannel
-        (
-            args,
-            (channel, _) -> channel.getLpa().disableProfile(iccid[0], refresh[0])
-        );
-
-        if (success)
-            handleNotification(args, iccid[0], LocalProfileNotification.Operation.Disable);
-
-        return success(success);
-    }
-
-    private MatrixCursor handleDisableActiveProfile(Map<String, String> args) throws Exception
-    {
-        boolean[] refresh = new boolean[1];
-
-        if (!tryGetArgAsBoolean(args, "refresh", refresh))
-            refresh[0] = true;
-
-        safeguardActiveProfile(args, null);
-
-        String iccid = withEuiccChannel
-        (
-            args,
-            (channel, _) -> LPAUtilsKt.disableActiveProfileKeepIccId(channel.getLpa(), refresh[0])
-        );
-
-        if (iccid != null)
-            handleNotification(args, iccid, LocalProfileNotification.Operation.Disable);
-
-        return success();
-
-        // if (iccid == null)
-        //     return empty();
-
-        // var profiles = getProfiles(args);
-
-        // var profile = profiles.stream()
-        //     .filter(p -> iccid.equals(p.getIccid()))
-        //     .findFirst()
-        //     .get();
-
-        // if (profile == null)
-        //     return empty();
-
-        // return profile(profile);
     }
 
     private MatrixCursor handleSetProfileNickname(Map<String, String> args) throws Exception

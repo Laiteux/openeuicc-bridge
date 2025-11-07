@@ -620,14 +620,14 @@ public class LpaProvider extends ContentProvider
 
         return switch (name)
         {
-            case "verboseLogging" -> preferenceRepository.getVerboseLoggingFlow();
-            case "forceUseTelephonyManager" -> preferenceRepository.getForceUseTMAPIFlow();
-            case "safeguardActiveProfile" -> preferenceRepository.getDisableSafeguardFlow();
-            case "filterProfileList" -> preferenceRepository.getUnfilteredProfileListFlow();
-            case "ignoreTlsCertificate" -> preferenceRepository.getIgnoreTLSCertificateFlow();
-            case "notificationsDownload" -> preferenceRepository.getNotificationDownloadFlow();
-            case "notificationsDelete" -> preferenceRepository.getNotificationDeleteFlow();
-            case "notificationsSwitch" -> preferenceRepository.getNotificationSwitchFlow();
+            case "verboseLogging" -> preferenceRepository.getVerboseLoggingFlow(); // non-implemented
+            case "forceUseTelephonyManager" -> preferenceRepository.getForceUseTMAPIFlow(); // non-implemented for UnprivilegedAppContainer
+            case "safeguardActiveProfile" -> preferenceRepository.getDisableSafeguardFlow(); // implemented
+            case "filterProfileList" -> preferenceRepository.getUnfilteredProfileListFlow(); // implemented
+            case "ignoreTlsCertificate" -> preferenceRepository.getIgnoreTLSCertificateFlow(); // non-implemented
+            case "notificationsDownload" -> preferenceRepository.getNotificationDownloadFlow(); // implemented for Download and Enable Operations
+            case "notificationsDelete" -> preferenceRepository.getNotificationDeleteFlow(); // implemented for Disable and Delete Operations
+            case "notificationsSwitch" -> preferenceRepository.getNotificationSwitchFlow(); // non-implemented
             default -> throw new Exception("unknown_preference_name");
         };
     }

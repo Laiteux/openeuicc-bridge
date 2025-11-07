@@ -121,13 +121,13 @@ public class LpaProvider extends ContentProvider
                                         // out (many, can be empty): int slotId, int portId
                                         case "cards" -> handleGetCards(args);
                                         // in: int slotId, int portId
-                                        // out (many, can be empty): string iccid, bool enabled, string name, string nickname
+                                        // out (many, can be empty): string iccid, bool enabled, string? nickname, string provider
                                         case "profiles" -> handleGetProfiles(args);
                                         // in: int slotId, int portId
-                                        // out (single, can be empty): string iccid, bool enabled, string name, string nickname
+                                        // out (single, can be empty): string iccid, bool enabled, string? nickname, string provider
                                         case "activeProfile" -> handleGetActiveProfile(args);
                                         // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei, string? callbackUrl
-                                        // out (single, can be empty): string iccid, bool enabled, string name, string nickname
+                                        // out (single, can be empty): string iccid, bool enabled, string? nickname, string provider
                                         case "downloadProfile" -> handleDownloadProfile(args);
                                         // in: int slotId, int portId, string iccid
                                         // out: bool success
@@ -141,7 +141,7 @@ public class LpaProvider extends ContentProvider
                                         // in: int slotId, int portId, bool refresh=true
                                         // out: bool success
                                         case "disableActiveProfile" -> handleDisableActiveProfile(args);
-                                        // in: int slotId, int portId, string iccid, string nickname
+                                        // in: int slotId, int portId, string iccid, string? nickname, string provider
                                         // out: bool success
                                         case "setProfileNickname" -> handleSetProfileNickname(args);
                                         default -> error("unknown_endpoint");

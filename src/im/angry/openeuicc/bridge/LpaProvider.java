@@ -118,21 +118,21 @@ public class LpaProvider extends ContentProvider
                                         // in: string name, bool enabled
                                         // out: bool success
                                         case "setPreference" -> handleSetPreference(args);
-                                        // out (many, can be empty): int slotId, int portId
+                                        // out (many, can be empty): int slot, int port
                                         case "cards" -> handleGetCards(args);
-                                        // in: int slotId, int portId
+                                        // in: int slot, int port
                                         // out (many, can be empty): string iccid, bool enabled, string provider, string? nickname
                                         case "profiles" -> handleGetProfiles(args);
-                                        // in: int slotId, int portId, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei, string? callbackUrl
+                                        // in: int slot, int port, (either {string activationCode} or {string address, string? matchingId}), string? confirmationCode, string? imei, string? callbackUrl
                                         // out (single, can be empty): string iccid, bool enabled, string provider, string? nickname
                                         case "downloadProfile" -> handleDownloadProfile(args);
-                                        // in: int slotId, int portId, string iccid
+                                        // in: int slot, int port, string iccid
                                         // out: bool success
                                         case "deleteProfile" -> handleDeleteProfile(args);
-                                        // in: int slotId, int portId, string iccid, bool refresh=true
+                                        // in: int slot, int port, string iccid, bool refresh=true
                                         // out: bool success
                                         case "enableProfile" -> handleEnableProfile(args);
-                                        // in: int slotId, int portId, string iccid, string? nickname
+                                        // in: int slot, int port, string iccid, string? nickname
                                         // out: bool success
                                         case "setProfileNickname" -> handleSetProfileNickname(args);
                                         default -> error("unknown_endpoint");
@@ -245,8 +245,8 @@ public class LpaProvider extends ContentProvider
 
         var rows = new MatrixCursor(new String[]
         {
-            "slotId",
-            "portId",
+            "slot",
+            "port",
             "eid"
         });
 
@@ -255,26 +255,26 @@ public class LpaProvider extends ContentProvider
             if (!card.isRemovable())
                 continue;
 
-            for (UiccPortInfoCompat port : card.getPorts())
+            for (UiccPortInfoCompat cardPort : card.getPorts())
             {
-                int slotId = card.getPhysicalSlotIndex();
-                int portId = port.getPortIndex();
+                int slot = card.getPhysicalSlotIndex();
+                int port = cardPort.getPortIndex();
 
-                var euiccChannel = findEuiccChannel(euiccChannelManager, slotId, portId);
+                var euiccChannel = findEuiccChannel(euiccChannelManager, slot, port);
 
                 if (euiccChannel != null)
                 {
                     String eid = withEuiccChannel
                     (
-                        slotId,
-                        portId,
+                        slot,
+                        port,
                         (channel, _) -> channel.getLpa().getEID()
                     );
 
                     rows.addRow(new Object[]
                     {
-                        slotId,
-                        portId,
+                        slot,
+                        port,
                         eid
                     });
                 }
@@ -471,7 +471,7 @@ public class LpaProvider extends ContentProvider
 
     // region LPA Helpers
 
-    private static EuiccChannel findEuiccChannel(DefaultEuiccChannelManager euiccChannelManager, int slotId, int portId) throws Exception
+    private static EuiccChannel findEuiccChannel(DefaultEuiccChannelManager euiccChannelManager, int slot, int port) throws Exception
     {
         var findEuiccChannelByPortMethod = DefaultEuiccChannelManager.class.getDeclaredMethod("findEuiccChannelByPort", int.class, int.class, Continuation.class);
         findEuiccChannelByPortMethod.setAccessible(true);
@@ -483,7 +483,7 @@ public class LpaProvider extends ContentProvider
             {
                 try
                 {
-                    return findEuiccChannelByPortMethod.invoke(euiccChannelManager, slotId, portId, continuation);
+                    return findEuiccChannelByPortMethod.invoke(euiccChannelManager, slot, port, continuation);
                 }
                 catch (Exception ex)
                 {
@@ -494,24 +494,24 @@ public class LpaProvider extends ContentProvider
     }
 
     @SuppressWarnings("unchecked")
-    private <T> T withEuiccChannel(int slotId, int portId, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
+    private <T> T withEuiccChannel(int slot, int port, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
     {
         var euiccChannelManager = appContainer.getEuiccChannelManager();
 
         return (T) BuildersKt.runBlocking
         (
             EmptyCoroutineContext.INSTANCE,
-            (_, continuation) -> euiccChannelManager.withEuiccChannel(slotId, portId, operation, continuation)
+            (_, continuation) -> euiccChannelManager.withEuiccChannel(slot, port, operation, continuation)
         );
     }
 
     private <T> T withEuiccChannel(Map<String, String> args, Function2<EuiccChannel, Continuation<? super T>, ?> operation) throws Exception
     {
-        var slotId = new int[1];
-        var portId = new int[1];
-        requireSlotAndPort(args, slotId, portId);
+        var slot = new int[1];
+        var port = new int[1];
+        requireSlotAndPort(args, slot, port);
 
-        return withEuiccChannel(slotId[0], portId[0], operation);
+        return withEuiccChannel(slot[0], port[0], operation);
     }
 
     private List<LocalProfileInfo> getProfiles(Map<String, String> args) throws Exception
@@ -640,11 +640,11 @@ public class LpaProvider extends ContentProvider
 
     private void safeguardActiveProfile(Map<String, String> args, String iccid) throws Exception
     {
-        int[] slotId = new int[1];
-        int[] portId = new int[1];
-        requireSlotAndPort(args, slotId, portId);
+        int[] slot = new int[1];
+        int[] port = new int[1];
+        requireSlotAndPort(args, slot, port);
 
-        if (slotId[0] == EuiccChannelManager.USB_CHANNEL_ID)
+        if (slot[0] == EuiccChannelManager.USB_CHANNEL_ID)
             return;
 
         boolean safeguardEnabled = getPreference("safeguardActiveProfile");
@@ -730,16 +730,16 @@ public class LpaProvider extends ContentProvider
         return true;
     }
 
-    private static void requireSlotAndPort(Map<String, String> args, int[] slotIdOut, int[] portIdOut) throws Exception
+    private static void requireSlotAndPort(Map<String, String> args, int[] slotOut, int[] portOut) throws Exception
     {
-        final String slotIdArg = "slotId";
-        final String portIdArg = "portId";
+        final String slotArg = "slot";
+        final String portArg = "port";
 
-        if (!tryGetArgAsInt(args, slotIdArg, slotIdOut))
-            throw new Exception("missing_arg_" + slotIdArg);
+        if (!tryGetArgAsInt(args, slotArg, slotOut))
+            throw new Exception("missing_arg_" + slotArg);
 
-        if (!tryGetArgAsInt(args, portIdArg, portIdOut))
-            throw new Exception("missing_arg_" + portIdArg);
+        if (!tryGetArgAsInt(args, portArg, portOut))
+            throw new Exception("missing_arg_" + portArg);
     }
 
     // endregion

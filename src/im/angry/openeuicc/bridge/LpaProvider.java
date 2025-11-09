@@ -111,8 +111,6 @@ public class LpaProvider extends ContentProvider
                                 {
                                     rows = switch (endpoint)
                                     {
-                                        // out: string ping=pong
-                                        case "ping" -> handlePing(args);
                                         // out (many): string name, bool enabled
                                         case "preferences" -> handleGetPreferences(args);
                                         // in: string name, bool enabled
@@ -181,11 +179,6 @@ public class LpaProvider extends ContentProvider
     // endregion
 
     // region Handlers
-
-    private MatrixCursor handlePing(Map<String, String> args)
-    {
-        return row("ping", "pong");
-    }
 
     private MatrixCursor handleGetPreferences(Map<String, String> args) throws Exception
     {

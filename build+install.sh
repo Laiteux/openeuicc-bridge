@@ -35,9 +35,9 @@ BT="$ANDROID_SDK/build-tools/$(ls "$ANDROID_SDK/build-tools" | sort -V | tail -1
 # Sanity: tools present
 command -v apktool >/dev/null || { echo "ERROR: apktool not found"; exit 1; }
 command -v adb     >/dev/null || { echo "ERROR: adb not found"; exit 1; }
-command -v javac   >/dev/null || { echo "ERROR: javac not found"; exit 1; }
 command -v java    >/dev/null || { echo "ERROR: java not found"; exit 1; }
-command -v keytool >/dev/null || { echo "ERROR: keytool not found"; exit 1; }
+command -v javac   >/dev/null || { echo "ERROR: javac not found"; exit 1; }
+# command -v keytool >/dev/null || { echo "ERROR: keytool not found"; exit 1; }
 
 # Sanity: files/dirs
 [[ -f "$ANDROID_JAR" ]]  || { echo "ERROR: android.jar not found: $ANDROID_JAR"; exit 1; }
